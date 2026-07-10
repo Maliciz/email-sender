@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Upload, Play, Pause, RotateCcw, Mail, FileText, 
-  CheckCircle2, AlertTriangle, Eye, Code, Terminal, 
+import {
+  Upload, Play, Pause, RotateCcw, Mail, FileText,
+  CheckCircle2, AlertTriangle, Eye, Code, Terminal,
   HelpCircle, Layers, Hourglass, ShieldCheck
 } from 'lucide-react';
 
@@ -11,11 +11,11 @@ function App() {
   const [file, setFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
-  
+
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [activeTab, setActiveTab] = useState('edit'); // 'edit' or 'preview'
-  
+
   const [stats, setStats] = useState({
     status: 'idle',
     total: 0,
@@ -25,7 +25,7 @@ function App() {
     logs: []
   });
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
-  
+
   const fileInputRef = useRef(null);
   const logsEndRef = useRef(null);
 
@@ -189,7 +189,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[#070b15] text-[#e2e8f0] pb-12 font-sans selection:bg-cyan-500/20 selection:text-cyan-300">
-      
+
       {/* Glow Effects Background */}
       <div className="absolute top-0 left-1/4 w-[400px] h-[400px] bg-cyan-500/10 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute top-[30vh] right-1/4 w-[350px] h-[350px] bg-violet-600/10 rounded-full blur-[100px] pointer-events-none" />
@@ -208,13 +208,12 @@ function App() {
               <p className="text-xs text-slate-400 m-0 mt-1">High-Performance Mass Mail Engine</p>
             </div>
           </div>
-          
+
           <div className="flex items-center space-x-4">
             <span className="flex items-center text-xs space-x-2 bg-slate-900 px-3 py-1.5 rounded-full border border-slate-800">
-              <span className={`h-2.5 w-2.5 rounded-full ${
-                connectionStatus === 'connected' ? 'bg-emerald-500 shadow-md shadow-emerald-500/50' : 
+              <span className={`h-2.5 w-2.5 rounded-full ${connectionStatus === 'connected' ? 'bg-emerald-500 shadow-md shadow-emerald-500/50' :
                 connectionStatus === 'connecting' ? 'bg-amber-500 animate-pulse' : 'bg-red-500'
-              }`} />
+                }`} />
               <span className="text-slate-300 capitalize font-medium">{connectionStatus}</span>
             </span>
           </div>
@@ -223,10 +222,10 @@ function App() {
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-6 mt-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
+
         {/* Left Form Column (Lg: 7 cols) */}
         <section className="lg:col-span-7 space-y-6">
-          
+
           {/* File Upload Card */}
           <div className="bg-slate-900/40 border border-slate-800/75 rounded-2xl p-6 backdrop-blur-md relative overflow-hidden group">
             <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-cyan-500/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
@@ -234,23 +233,22 @@ function App() {
               <Layers className="h-5 w-5 text-cyan-400" />
               <span>Contact Directory</span>
             </h2>
-            
-            <div 
+
+            <div
               onClick={() => !isSending && fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer ${
-                isSending ? 'border-slate-800 bg-slate-950/20 cursor-not-allowed opacity-50' :
+              className={`border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer ${isSending ? 'border-slate-800 bg-slate-950/20 cursor-not-allowed opacity-50' :
                 file ? 'border-cyan-500/40 bg-cyan-950/5' : 'border-slate-800 hover:border-slate-700 bg-slate-950/40'
-              }`}
+                }`}
             >
-              <input 
-                type="file" 
+              <input
+                type="file"
                 ref={fileInputRef}
                 onChange={handleFileUpload}
                 accept=".csv"
                 className="hidden"
                 disabled={isSending}
               />
-              
+
               {isUploading ? (
                 <div className="space-y-3">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400 mx-auto" />
@@ -288,7 +286,7 @@ function App() {
           {/* Email Template Composer */}
           <div className="bg-slate-900/40 border border-slate-800/75 rounded-2xl p-6 backdrop-blur-md relative overflow-hidden group">
             <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-violet-500/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-            
+
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-lg font-display font-semibold text-white flex items-center space-x-2">
                 <FileText className="h-5 w-5 text-violet-400" />
@@ -299,11 +297,10 @@ function App() {
                 <button
                   type="button"
                   onClick={() => setActiveTab('edit')}
-                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                    activeTab === 'edit' 
-                      ? 'bg-slate-900 text-cyan-400 border border-slate-850 shadow-inner' 
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${activeTab === 'edit'
+                    ? 'bg-slate-900 text-cyan-400 border border-slate-850 shadow-inner'
+                    : 'text-slate-400 hover:text-slate-200'
+                    }`}
                 >
                   <Code className="h-3.5 w-3.5" />
                   <span>HTML Source</span>
@@ -311,11 +308,10 @@ function App() {
                 <button
                   type="button"
                   onClick={() => setActiveTab('preview')}
-                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                    activeTab === 'preview' 
-                      ? 'bg-slate-900 text-cyan-400 border border-slate-850 shadow-inner' 
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${activeTab === 'preview'
+                    ? 'bg-slate-900 text-cyan-400 border border-slate-850 shadow-inner'
+                    : 'text-slate-400 hover:text-slate-200'
+                    }`}
                 >
                   <Eye className="h-3.5 w-3.5" />
                   <span>Live Render</span>
@@ -369,24 +365,23 @@ function App() {
 
         {/* Right Dashboard Column (Lg: 5 cols) */}
         <section className="lg:col-span-5 space-y-6">
-          
+
           {/* Controls & Progress */}
           <div className="bg-slate-900/40 border border-slate-800/75 rounded-2xl p-6 backdrop-blur-md">
-            
+
             {/* Play/Pause control center */}
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-lg font-display font-semibold text-white flex items-center space-x-2">
                 <Hourglass className="h-5 w-5 text-cyan-400" />
                 <span>Active Campaign State</span>
               </h2>
-              
+
               <div className="flex items-center space-x-1">
-                <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-widest ${
-                  isSending ? 'bg-cyan-950 border border-cyan-800 text-cyan-300' :
+                <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-widest ${isSending ? 'bg-cyan-950 border border-cyan-800 text-cyan-300' :
                   isPaused ? 'bg-amber-950 border border-amber-800 text-amber-300' :
-                  isCompleted ? 'bg-emerald-950 border border-emerald-800 text-emerald-300' :
-                  'bg-slate-950 border border-slate-800 text-slate-400'
-                }`}>
+                    isCompleted ? 'bg-emerald-950 border border-emerald-800 text-emerald-300' :
+                      'bg-slate-950 border border-slate-800 text-slate-400'
+                  }`}>
                   {stats.status}
                 </span>
               </div>
@@ -399,10 +394,10 @@ function App() {
                   <span>Batch Sending Status</span>
                   <span className="text-cyan-400 font-mono">{getProgressPercentage()}% Complete</span>
                 </div>
-                
+
                 {/* Progress bar container */}
                 <div className="h-3 w-full bg-slate-950 rounded-full overflow-hidden border border-slate-850 p-0.5">
-                  <div 
+                  <div
                     className="h-full bg-gradient-to-r from-cyan-500 to-violet-500 rounded-full transition-all duration-500 ease-out relative"
                     style={{ width: `${getProgressPercentage()}%` }}
                   >
@@ -506,7 +501,7 @@ function App() {
               )}
               <div ref={logsEndRef} />
             </div>
-            
+
             <div className="flex items-center justify-between mt-3 text-[10px] text-slate-500 font-mono">
               <span className="flex items-center space-x-1">
                 <ShieldCheck className="h-3.5 w-3.5 text-cyan-500/80" />
