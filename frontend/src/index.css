@@ -1,5 +1,5 @@
-@import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
 
 @theme {
   --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
@@ -7,25 +7,45 @@
 }
 
 body {
-  background-color: #0b0f19;
+  background-color: #05070c;
   color: #f3f4f6;
   font-family: var(--font-sans);
 }
 
-/* Custom Scrollbar for modern terminal aesthetic */
+/* Custom Scrollbar for modern red terminal aesthetic */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: #090d16;
 }
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #7f1d1d;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #b91c1c;
+}
+
+/* Crimson glow animations */
+@keyframes crimson-pulse {
+  0%, 100% {
+    opacity: 0.12;
+    transform: scale(1) translate(0, 0);
+  }
+  33% {
+    opacity: 0.22;
+    transform: scale(1.08) translate(10px, -15px);
+  }
+  66% {
+    opacity: 0.18;
+    transform: scale(0.95) translate(-15px, 10px);
+  }
+}
+
+.animate-crimson-pulse-slow {
+  animation: crimson-pulse 10s infinite ease-in-out;
 }
 
 /* Shimmer animation for loading states */
@@ -39,7 +59,21 @@ body {
 }
 
 .animate-shimmer {
-  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background: linear-gradient(90deg, #180808 25%, #450a0a 50%, #180808 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite linear;
+}
+
+/* Custom visual glow border panel */
+.glass-panel {
+  background: rgba(9, 13, 22, 0.55);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(239, 68, 68, 0.08);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-panel:hover {
+  border-color: rgba(239, 68, 68, 0.25);
+  box-shadow: 0 0 25px rgba(239, 68, 68, 0.08);
 }

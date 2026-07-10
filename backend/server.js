@@ -32,10 +32,25 @@ const storage = multer.diskStorage({
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
-    cb(null, 'contacts.csv');
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext === '.txt') {
+      cb(null, 'contacts.txt');
+    } else {
+      cb(null, 'contacts.csv');
+    }
   }
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext === '.csv' || ext === '.txt') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only .csv and .txt files are allowed'), false);
+    }
+  }
+});
 
 // State Variables
 let status = 'idle'; // 'idle', 'sending', 'paused', 'completed'
@@ -95,6 +110,38 @@ async function countCsvContacts(filePath) {
       .on('error', (err) => {
         reject(err);
       });
+  });
+}
+
+// Convert TXT file (one email per line) to CSV format
+async function convertTxtToCsv(txtFilePath, csvFilePath) {
+  const writeStream = fs.createWriteStream(csvFilePath);
+  const readStream = fs.createReadStream(txtFilePath);
+  const rl = readline.createInterface({
+    input: readStream,
+    crlfDelay: Infinity
+  });
+
+  // Write header first
+  await new Promise((resolve, reject) => {
+    writeStream.write('email\n', 'utf8', (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+
+  for await (const line of rl) {
+    const cleanEmail = line.trim();
+    if (cleanEmail) {
+      const canWrite = writeStream.write(`${cleanEmail}\n`, 'utf8');
+      if (!canWrite) {
+        await new Promise(resolve => writeStream.once('drain', resolve));
+      }
+    }
+  }
+
+  await new Promise((resolve) => {
+    writeStream.end(resolve);
   });
 }
 
@@ -264,22 +311,45 @@ async function processActiveBatch() {
 
 // API Routes
 
-// POST /upload - upload contacts.csv
-app.post('/upload', upload.single('file'), async (req, res) => {
+// POST /upload - upload contacts.csv or contacts.txt
+app.post('/upload', (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      addLog(`[System Error] File upload failed: ${err.message}`);
+      return res.status(400).json({ success: false, error: err.message });
+    }
+    next();
+  });
+}, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'No file uploaded' });
     }
-    
+
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    const csvPath = path.join(uploadsDir, 'contacts.csv');
+
+    if (ext === '.txt') {
+      addLog('[System] TXT file detected. Converting to CSV...');
+      await convertTxtToCsv(req.file.path, csvPath);
+      // Clean up temporary TXT file
+      try {
+        await fs.promises.unlink(req.file.path);
+      } catch (unlinkErr) {
+        console.error('Failed to unlink temporary txt file:', unlinkErr);
+      }
+      addLog('[System] Conversion completed. CSV generated.');
+    }
+
     addLog('[System] Parsing and verifying contact counts...');
-    const count = await countCsvContacts(req.file.path);
+    const count = await countCsvContacts(csvPath);
     totalContacts = count;
     remainingCount = Math.max(0, totalContacts - sentCount);
-    
-    addLog(`[System] CSV successfully loaded. Found ${totalContacts} valid contact emails.`);
+
+    addLog(`[System] Contacts successfully loaded. Found ${totalContacts} valid contact emails.`);
     res.json({ success: true, count });
   } catch (error) {
-    addLog(`[System Error] CSV count fail: ${error.message}`);
+    addLog(`[System Error] Upload process failed: ${error.message}`);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -339,6 +409,10 @@ app.post('/reset', async (req, res) => {
   const csvPath = path.join(uploadsDir, 'contacts.csv');
   if (fs.existsSync(csvPath)) {
     await fs.promises.unlink(csvPath);
+  }
+  const txtPath = path.join(uploadsDir, 'contacts.txt');
+  if (fs.existsSync(txtPath)) {
+    await fs.promises.unlink(txtPath);
   }
 
   addLog('[System] Sent progress and upload cache completely reset.');
