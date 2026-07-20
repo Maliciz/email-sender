@@ -332,9 +332,9 @@ function App() {
               </div>
               <div>
                 <h1 className="text-xl font-display font-bold tracking-tight text-white m-0 leading-none">
-                  SPAMER<span className="text-red-500">Tool</span>
+                  SEN<span className="text-red-500">DER</span>
                 </h1>
-                <p className="text-[10px] text-slate-400 font-mono tracking-wider m-0 mt-1 uppercase">Mass Email Command</p>
+                <p className="text-[10px] text-slate-400 font-mono tracking-wider m-0 mt-1 uppercase"></p>
               </div>
             </div>
 
