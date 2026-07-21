@@ -611,11 +611,7 @@ function App() {
               </div>
               <div>
                 <h1 className="text-xl font-display font-bold tracking-tight m-0 leading-none">
-                  SEND<span className={isDark ? 'text-zinc-400' : 'text-zinc-700'}>GRID</span> SAAS
-                </h1>
-                <p className="text-[10px] font-mono tracking-wider m-0 mt-1 uppercase opacity-70">
-                  Cloud Mail Distribution Engine
-                </p>
+                  SEND<span className={isDark ? 'text-zinc-400' : 'text-zinc-700'}>GRID</span> 
               </div>
             </div>
 
