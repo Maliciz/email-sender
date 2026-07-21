@@ -36,8 +36,89 @@ if (!fs.existsSync(uploadsDir)) {
 // Multer file upload setup
 const upload = multer({ dest: uploadsDir });
 
-// Global state variable safeguard
+// Global state variables
 let isMailing = false;
+let sseClients = [];
+let recentLogs = [];
+
+function addLog(message) {
+  const logEntry = {
+    id: Date.now() + Math.random().toString(36).substr(2, 9),
+    timestamp: new Date().toLocaleTimeString(),
+    message
+  };
+  recentLogs.unshift(logEntry);
+  if (recentLogs.length > 100) recentLogs.pop();
+  broadcastSSEStatus();
+}
+
+async function getProgressStats() {
+  try {
+    const { rows } = await query(
+      'SELECT status, COUNT(*) as count FROM contacts GROUP BY status'
+    );
+
+    const counts = { pending: 0, sent: 0, error: 0 };
+    let total = 0;
+
+    if (rows && rows.length > 0) {
+      rows.forEach((row) => {
+        const countNum = parseInt(row.count, 10) || 0;
+        counts[row.status] = countNum;
+        total += countNum;
+      });
+    }
+
+    return {
+      status: isMailing ? 'sending' : 'idle',
+      total,
+      sent: counts.sent,
+      remaining: counts.pending,
+      errors: counts.error,
+      logs: recentLogs
+    };
+  } catch (err) {
+    return {
+      status: isMailing ? 'sending' : 'idle',
+      total: 0,
+      sent: 0,
+      remaining: 0,
+      errors: 0,
+      logs: recentLogs
+    };
+  }
+}
+
+async function broadcastSSEStatus() {
+  if (sseClients.length === 0) return;
+  const stats = await getProgressStats();
+  const data = `data: ${JSON.stringify(stats)}\n\n`;
+  sseClients.forEach((client) => client.write(data));
+}
+
+// Periodic SSE Broadcast Heartbeat (every 3s)
+setInterval(() => {
+  broadcastSSEStatus();
+}, 3000);
+
+/**
+ * GET /status/events - SSE Real-time Endpoint
+ */
+app.get('/status/events', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const stats = await getProgressStats();
+  res.write(`data: ${JSON.stringify(stats)}\n\n`);
+
+  sseClients.push(res);
+
+  req.on('close', () => {
+    sseClients = sseClients.filter((client) => client !== res);
+  });
+});
 
 /**
  * GET /contacts
@@ -61,11 +142,6 @@ app.get('/contacts', async (req, res) => {
 
 /**
  * 1. Upload & Deploy Contacts (POST /upload & POST /deploy-contacts)
- * Accepts either:
- *  - JSON body { emails: ["a@b.com", ...] }
- *  - File upload via multer (.txt or .csv)
- * Inserts emails into contacts table using INSERT ... ON CONFLICT (email) DO NOTHING.
- * Returns 200 OK with count of inserted contacts.
  */
 const handleDeployContacts = async (emails, res) => {
   try {
@@ -73,7 +149,9 @@ const handleDeployContacts = async (emails, res) => {
       return res.status(400).json({ success: false, error: 'No valid emails provided' });
     }
 
+    addLog(`[System] Deploying batch of ${emails.length} contacts to database...`);
     let insertedCount = 0;
+
     for (const rawEmail of emails) {
       const email = typeof rawEmail === 'string' ? rawEmail.trim() : '';
       if (!email || !email.includes('@')) continue;
@@ -87,6 +165,8 @@ const handleDeployContacts = async (emails, res) => {
       }
     }
 
+    addLog(`[System] Deployed successfully. ${insertedCount} new contacts inserted.`);
+
     return res.status(200).json({
       success: true,
       message: 'Contacts deployed successfully',
@@ -95,6 +175,7 @@ const handleDeployContacts = async (emails, res) => {
     });
   } catch (error) {
     console.error('Error deploying contacts:', error);
+    addLog(`[Error] Deploy failed: ${error.message}`);
     return res.status(500).json({
       success: false,
       error: error.message || 'Failed to insert contacts into database'
@@ -109,7 +190,6 @@ app.post('/deploy-contacts', async (req, res) => {
 
 app.post('/upload', upload.single('file'), async (req, res) => {
   try {
-    // If request contains JSON emails array
     if (req.body && req.body.emails) {
       let emailsList = req.body.emails;
       if (typeof emailsList === 'string') {
@@ -122,7 +202,6 @@ app.post('/upload', upload.single('file'), async (req, res) => {
       return handleDeployContacts(emailsList, res);
     }
 
-    // Otherwise handle file upload
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'No file or emails provided' });
     }
@@ -174,10 +253,6 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 
 /**
  * 3. Background Logic processMailing()
- * Fetches pending contacts from DB in batches of 50.
- * Iterates using a for...of loop, sends email via SendGrid, updates DB status to 'sent' or 'error'.
- * Includes a mandatory 1-second delay between emails to avoid SendGrid rate limits.
- * Recursively calls itself until no pending contacts remain.
  */
 async function processMailing() {
   try {
@@ -186,10 +261,13 @@ async function processMailing() {
     );
 
     if (!rows || rows.length === 0) {
-      console.log('Mailing complete. No pending contacts found.');
+      addLog('[System] Mailing complete. No pending contacts remaining.');
       isMailing = false;
+      broadcastSSEStatus();
       return;
     }
+
+    addLog(`[Sending] Processing batch of ${rows.length} pending contacts...`);
 
     for (const row of rows) {
       const email = row.email;
@@ -209,6 +287,7 @@ async function processMailing() {
           "UPDATE contacts SET status = 'sent' WHERE email = $1",
           [email]
         );
+        addLog(`[Sent] Email delivered to ${email}`);
       } catch (err) {
         console.error(`SendGrid error for ${email}:`, err.message || err);
 
@@ -216,17 +295,20 @@ async function processMailing() {
           "UPDATE contacts SET status = 'error' WHERE email = $1",
           [email]
         );
+        addLog(`[Error] Failed to send email to ${email}: ${err.message || 'SendGrid Error'}`);
       }
 
-      // CRITICAL: 1-second delay between sending each email
+      // 1-second delay between emails
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
-    // Recursively process next batch
+    // Process next batch recursively
     await processMailing();
   } catch (error) {
     console.error('Error in processMailing background worker:', error);
+    addLog(`[Error] Background worker exception: ${error.message}`);
     isMailing = false;
+    broadcastSSEStatus();
   }
 }
 
@@ -243,12 +325,14 @@ app.post('/start-mailing', (req, res) => {
     }
 
     isMailing = true;
+    addLog('[System] Start signal received. Launching background worker...');
 
     res.status(200).json({ message: 'Mailing started in background' });
 
     processMailing().catch((err) => {
       console.error('Unhandled error in processMailing:', err);
       isMailing = false;
+      addLog(`[Error] Process error: ${err.message}`);
     });
   } catch (error) {
     console.error('Error during POST /start-mailing:', error);
@@ -264,30 +348,8 @@ app.post('/start-mailing', (req, res) => {
  */
 app.get('/progress', async (req, res) => {
   try {
-    const { rows } = await query(
-      'SELECT status, COUNT(*) as count FROM contacts GROUP BY status'
-    );
-
-    const counts = {
-      pending: 0,
-      sent: 0,
-      error: 0
-    };
-
-    if (rows && rows.length > 0) {
-      rows.forEach((row) => {
-        const countNum = parseInt(row.count, 10) || 0;
-        counts[row.status] = countNum;
-      });
-    }
-
-    return res.status(200).json({
-      isMailing,
-      pending: counts.pending,
-      sent: counts.sent,
-      error: counts.error,
-      counts
-    });
+    const stats = await getProgressStats();
+    return res.status(200).json(stats);
   } catch (error) {
     console.error('Error during GET /progress:', error);
     return res.status(500).json({
