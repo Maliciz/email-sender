@@ -3,7 +3,7 @@ import {
   Mail, Sun, Moon, Upload, Plus, Trash2, Play, Pause, RotateCcw,
   FileText, CheckCircle2, AlertTriangle, Eye, Code, Terminal,
   Database, Send, RefreshCw, Filter, X, ShieldCheck, Hourglass, Layers,
-  Globe, Check
+  Globe, Check, FileUp, Edit3
 } from 'lucide-react';
 import { createTheme, ThemeProvider, styled } from '@mui/material/styles';
 import {
@@ -34,6 +34,10 @@ import {
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 
+import ReactQuill from 'react-quill-new';
+import 'react-quill-new/dist/quill.snow.css';
+import mammoth from 'mammoth';
+
 const BACKEND_URL = 'http://localhost:5000';
 
 // Glowing Progress Bar
@@ -48,6 +52,16 @@ const GlowingLinearProgress = styled(LinearProgress)(({ theme }) => ({
     boxShadow: theme.palette.mode === 'dark' ? '0 0 10px rgba(255, 255, 255, 0.4)' : '0 0 10px rgba(0, 0, 0, 0.5)',
   },
 }));
+
+// Quill Toolbar Configuration
+const quillModules = {
+  toolbar: [
+    [{ 'header': [1, 2, 3, false] }],
+    ['bold', 'italic', 'underline', 'strike', 'blockquote'],
+    [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+    ['link', 'clean']
+  ]
+};
 
 function App() {
   // Theme State: 'dark' or 'light'
@@ -74,10 +88,10 @@ function App() {
   const [errorsOnlyFilter, setErrorsOnlyFilter] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Campaign State
+  // Campaign State & Editor Modes
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
-  const [activeEditorTab, setActiveEditorTab] = useState(0); // 0 = edit HTML, 1 = live preview
+  const [activeEditorTab, setActiveEditorTab] = useState(0); // 0 = WYSIWYG Visual, 1 = Code Mode (Raw HTML), 2 = Live Preview
 
   const [stats, setStats] = useState({
     status: 'idle',
@@ -91,6 +105,7 @@ function App() {
 
   // References
   const fileInputRef = useRef(null);
+  const docxInputRef = useRef(null);
   const logsEndRef = useRef(null);
 
   // Dialog & Toast states
@@ -212,7 +227,7 @@ function App() {
     });
   }, [themeMode]);
 
-  // SSE Real-time Status Connection
+  // SSE Status Stream Connection
   useEffect(() => {
     let eventSource = null;
 
@@ -299,6 +314,39 @@ function App() {
     }
   }, [stats.logs]);
 
+  // Requirement 3: Client-side .docx Document Parsing with Mammoth
+  const handleDocxImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (ext !== 'docx') {
+      showToast('Please select a valid Microsoft Word .docx file.', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const arrayBuffer = event.target.result;
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        if (result.value) {
+          setBody(result.value);
+          showToast(`Successfully imported and converted "${file.name}" to HTML!`, 'success');
+        } else {
+          showToast('Could not extract HTML content from .docx file.', 'warning');
+        }
+      } catch (err) {
+        console.error('Docx parsing error:', err);
+        showToast(`Error importing document: ${err.message}`, 'error');
+      }
+
+      if (docxInputRef.current) docxInputRef.current.value = '';
+    };
+
+    reader.readAsArrayBuffer(file);
+  };
+
   // Add New Sender Domain
   const handleAddSender = async (e) => {
     e.preventDefault();
@@ -351,7 +399,7 @@ function App() {
     }
   };
 
-  // Client-Side File Parsing for Staging
+  // Client-Side File Parsing for Contact Staging
   const handleFileStaging = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -467,7 +515,7 @@ function App() {
     }
   };
 
-  // Start Campaign (Requires Selected Sender Email)
+  // Start Campaign
   const handleStartCampaign = async () => {
     if (!selectedSenderEmail) {
       showToast('Please select a Sender Email / Domain from the dropdown first.', 'warning');
@@ -557,7 +605,6 @@ function App() {
         {/* Top Navbar */}
         <header className={`border-b sticky top-0 z-50 backdrop-blur-md ${isDark ? 'bg-black/90 border-zinc-800' : 'bg-white/90 border-black'}`}>
           <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-            {/* Logo */}
             <div className="flex items-center space-x-3">
               <div className={`p-2.5 rounded-xl border ${isDark ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-black text-white border-black shadow-[0_0_8px_rgba(0,0,0,0.5)]'}`}>
                 <Mail className="h-5 w-5 stroke-[2.5]" />
@@ -599,7 +646,7 @@ function App() {
               </Tabs>
             </Box>
 
-            {/* Theme Toggle & SSE Status */}
+            {/* Controls */}
             <div className="flex items-center space-x-4">
               <span className={`flex items-center text-xs space-x-2 px-3.5 py-1.5 rounded-full border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black shadow-[0_0_6px_rgba(0,0,0,0.3)]'}`}>
                 <span className={`h-2 w-2 rounded-full ${connectionStatus === 'connected' ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' :
@@ -627,31 +674,56 @@ function App() {
           </div>
         </header>
 
-        {/* Main Application Content */}
+        {/* Main Content */}
         <main className="max-w-7xl mx-auto px-6 mt-8">
 
           {/* TAB 0: CAMPAIGN DASHBOARD */}
           {mainTab === 0 && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              {/* Left Panel: Subject & Body Editor */}
+              {/* Left Panel: WYSIWYG / Code / Live Preview Editor */}
               <section className="lg:col-span-7 space-y-6">
-                <div className="glass-panel rounded-2xl p-6 relative overflow-hidden">
-                  <div className="flex justify-between items-center mb-5">
+                <div className="glass-panel rounded-2xl p-6 relative overflow-hidden space-y-4">
+                  
+                  {/* Editor Mode Header & Document Import */}
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-zinc-800">
                     <h2 className="text-md font-display font-semibold flex items-center space-x-2.5">
                       <FileText className="h-4.5 w-4.5" />
-                      <span>Broadcast Content & Blueprint</span>
+                      <span>Email Template Blueprint</span>
                     </h2>
 
-                    <Tabs
-                      value={activeEditorTab}
-                      onChange={(e, val) => setActiveEditorTab(val)}
-                      textColor="primary"
-                      indicatorColor="primary"
-                      sx={{ minHeight: '36px' }}
-                    >
-                      <Tab label="Edit HTML" icon={<Code className="h-3.5 w-3.5" />} iconPosition="start" sx={{ minHeight: '36px', fontSize: '0.8rem' }} />
-                      <Tab label="Live Render" icon={<Eye className="h-3.5 w-3.5" />} iconPosition="start" sx={{ minHeight: '36px', fontSize: '0.8rem' }} />
-                    </Tabs>
+                    <div className="flex items-center space-x-3">
+                      {/* Requirement 3: Import .docx Button */}
+                      <input
+                        type="file"
+                        ref={docxInputRef}
+                        onChange={handleDocxImport}
+                        accept=".docx"
+                        className="hidden"
+                      />
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => docxInputRef.current?.click()}
+                        disabled={isSending}
+                        startIcon={<FileUp className="h-3.5 w-3.5" />}
+                        sx={{ fontSize: '0.75rem', py: '3px' }}
+                      >
+                        Import .docx
+                      </Button>
+
+                      {/* Requirement 2: Mode Toggles (Visual vs Code vs Preview) */}
+                      <Tabs
+                        value={activeEditorTab}
+                        onChange={(e, val) => setActiveEditorTab(val)}
+                        textColor="primary"
+                        indicatorColor="primary"
+                        sx={{ minHeight: '34px' }}
+                      >
+                        <Tab label="Visual Editor" icon={<Edit3 className="h-3.5 w-3.5" />} iconPosition="start" sx={{ minHeight: '34px', fontSize: '0.75rem', px: 1.5 }} />
+                        <Tab label="Code Mode" icon={<Code className="h-3.5 w-3.5" />} iconPosition="start" sx={{ minHeight: '34px', fontSize: '0.75rem', px: 1.5 }} />
+                        <Tab label="Live Render" icon={<Eye className="h-3.5 w-3.5" />} iconPosition="start" sx={{ minHeight: '34px', fontSize: '0.75rem', px: 1.5 }} />
+                      </Tabs>
+                    </div>
                   </div>
 
                   <div className="space-y-4">
@@ -663,22 +735,40 @@ function App() {
                         value={subject}
                         onChange={(e) => setSubject(e.target.value)}
                         disabled={isSending}
-                        placeholder="e.g. System update notification"
+                        placeholder="e.g. Important Account Notification"
                       />
                     </div>
 
-                    {activeEditorTab === 0 ? (
+                    {/* Mode 0: Requirement 1 WYSIWYG Visual Editor */}
+                    {activeEditorTab === 0 && (
                       <div>
-                        <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5 font-mono opacity-80">HTML Content</label>
+                        <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5 font-mono opacity-80">
+                          WYSIWYG Rich Text Editor (Paste formatting, Word, Telegram preserved)
+                        </label>
+                        <ReactQuill
+                          value={body}
+                          onChange={setBody}
+                          theme="snow"
+                          modules={quillModules}
+                          placeholder="Type or paste rich formatted email content here..."
+                          readOnly={isSending}
+                        />
+                      </div>
+                    )}
+
+                    {/* Mode 1: Requirement 2 Code Mode (Raw HTML) */}
+                    {activeEditorTab === 1 && (
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5 font-mono opacity-80">Raw HTML Code Mode</label>
                         <TextField
                           fullWidth
                           multiline
-                          rows={11}
+                          rows={12}
                           variant="outlined"
                           value={body}
                           onChange={(e) => setBody(e.target.value)}
                           disabled={isSending}
-                          placeholder="<h2>Hello!</h2><p>Your content here.</p>"
+                          placeholder="<h2>Hello!</h2><p>Your HTML here.</p>"
                           slotProps={{
                             input: {
                               style: {
@@ -689,28 +779,32 @@ function App() {
                           }}
                         />
                       </div>
-                    ) : (
+                    )}
+
+                    {/* Mode 2: Visualized Live Preview */}
+                    {activeEditorTab === 2 && (
                       <div>
-                        <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5 font-mono opacity-80">Visualized Live Preview</label>
-                        <div className={`w-full min-h-[285px] max-h-[360px] overflow-y-auto rounded-xl p-5 border ${isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-200' : 'bg-slate-50 border-black text-black shadow-[0_0_6px_rgba(0,0,0,0.2)]'}`}>
+                        <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5 font-mono opacity-80">Visualized Rendered Output</label>
+                        <div className={`w-full min-h-[300px] max-h-[380px] overflow-y-auto rounded-xl p-5 border ${isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-200' : 'bg-slate-50 border-black text-black shadow-[0_0_6px_rgba(0,0,0,0.2)]'}`}>
                           {body.trim() ? (
                             <div dangerouslySetInnerHTML={{ __html: body }} />
                           ) : (
-                            <div className="flex flex-col items-center justify-center min-h-[240px] opacity-40 space-y-2">
+                            <div className="flex flex-col items-center justify-center min-h-[250px] opacity-40 space-y-2">
                               <Eye className="h-8 w-8" />
-                              <p className="text-xs font-mono">Template body is empty</p>
+                              <p className="text-xs font-mono">Email body content is empty</p>
                             </div>
                           )}
                         </div>
                       </div>
                     )}
+
                   </div>
                 </div>
               </section>
 
-              {/* Right Panel: Sender Selector, Controls & Stream */}
+              {/* Right Panel */}
               <section className="lg:col-span-5 space-y-6">
-                {/* Requirement 3: Sender Domain / Email Selection Component */}
+                {/* Sender Domain Selection */}
                 <div className="glass-panel rounded-2xl p-6 space-y-5">
                   <div className="flex justify-between items-center">
                     <h2 className="text-md font-display font-semibold flex items-center space-x-2.5">
@@ -807,7 +901,6 @@ function App() {
                       </div>
                     </div>
 
-                    {/* Requirement 3: Disabled if no sender selected */}
                     <div className="flex space-x-3 pt-2">
                       <Button
                         variant="contained"
@@ -862,7 +955,6 @@ function App() {
           {/* TAB 1: DATABASE & CONTACTS STAGING */}
           {mainTab === 1 && (
             <div className="space-y-8">
-              {/* Staging Area Card */}
               <div className="glass-panel rounded-2xl p-6 space-y-6">
                 <div className="flex justify-between items-center border-b pb-4 border-zinc-800">
                   <div>
@@ -1067,7 +1159,6 @@ function App() {
           {/* TAB 2: SENDERS & DOMAIN MANAGEMENT */}
           {mainTab === 2 && (
             <div className="space-y-8">
-              {/* Requirement 3: Add Sender Domain Form */}
               <div className="glass-panel rounded-2xl p-6 space-y-6">
                 <div className="border-b pb-4 border-zinc-800">
                   <h2 className="text-lg font-display font-bold flex items-center space-x-2.5">
@@ -1127,7 +1218,7 @@ function App() {
                 </form>
               </div>
 
-              {/* Senders Table / List */}
+              {/* Senders Table */}
               <div className="glass-panel rounded-2xl p-6 space-y-4">
                 <h3 className="text-md font-display font-bold flex items-center space-x-2">
                   <ShieldCheck className="h-4.5 w-4.5" />

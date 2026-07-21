@@ -85,3 +85,77 @@ body {
 .light-mode .MuiOutlinedInput-root.Mui-focused {
   box-shadow: 0 0 12px rgba(0, 0, 0, 0.65) !important;
 }
+
+/* Quill Rich Text Editor Customizations */
+.ql-toolbar.ql-snow {
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+  transition: all 0.3s ease;
+}
+
+.ql-container.ql-snow {
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+  min-height: 240px;
+  max-height: 380px;
+  overflow-y: auto;
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  transition: all 0.3s ease;
+}
+
+/* Dark Mode Quill styling */
+.dark-mode .ql-toolbar.ql-snow {
+  background: #18181b;
+  border-color: #27272a !important;
+}
+
+.dark-mode .ql-container.ql-snow {
+  background: #050505;
+  border-color: #27272a !important;
+  color: #ffffff;
+}
+
+.dark-mode .ql-stroke {
+  stroke: #e4e4e7 !important;
+}
+
+.dark-mode .ql-fill {
+  fill: #e4e4e7 !important;
+}
+
+.dark-mode .ql-picker {
+  color: #e4e4e7 !important;
+}
+
+.dark-mode .ql-picker-options {
+  background-color: #18181b !important;
+  border-color: #27272a !important;
+}
+
+/* Light Mode Quill styling (Black Neon Borders) */
+.light-mode .ql-toolbar.ql-snow {
+  background: #ffffff;
+  border: 1px solid #000000 !important;
+  border-bottom: 1px solid #e4e4e7 !important;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.25) !important;
+}
+
+.light-mode .ql-container.ql-snow {
+  background: #ffffff;
+  border: 1px solid #000000 !important;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.25) !important;
+  color: #000000;
+}
+
+.light-mode .ql-stroke {
+  stroke: #000000 !important;
+}
+
+.light-mode .ql-fill {
+  fill: #000000 !important;
+}
+
+.light-mode .ql-picker {
+  color: #000000 !important;
+}
