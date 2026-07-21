@@ -38,8 +38,33 @@ const upload = multer({ dest: uploadsDir });
 
 // Global state variables
 let isMailing = false;
+let currentSenderEmail = '';
 let sseClients = [];
 let recentLogs = [];
+
+// Initialize DB tables on startup
+async function initDatabaseTables() {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS contacts (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        status VARCHAR(50) DEFAULT 'pending'
+      );
+    `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS senders (
+        id SERIAL PRIMARY KEY,
+        email_address VARCHAR(255) UNIQUE NOT NULL,
+        domain_name VARCHAR(255)
+      );
+    `);
+    console.log('Database tables verified and initialized.');
+  } catch (err) {
+    console.error('Error initializing database tables:', err);
+  }
+}
+initDatabaseTables();
 
 function addLog(message) {
   const logEntry = {
@@ -71,6 +96,7 @@ async function getProgressStats() {
 
     return {
       status: isMailing ? 'sending' : 'idle',
+      currentSenderEmail,
       total,
       sent: counts.sent,
       remaining: counts.pending,
@@ -80,6 +106,7 @@ async function getProgressStats() {
   } catch (err) {
     return {
       status: isMailing ? 'sending' : 'idle',
+      currentSenderEmail,
       total: 0,
       sent: 0,
       remaining: 0,
@@ -96,7 +123,6 @@ async function broadcastSSEStatus() {
   sseClients.forEach((client) => client.write(data));
 }
 
-// Periodic SSE Broadcast Heartbeat (every 3s)
 setInterval(() => {
   broadcastSSEStatus();
 }, 3000);
@@ -121,8 +147,73 @@ app.get('/status/events', async (req, res) => {
 });
 
 /**
- * GET /contacts
- * Returns all contacts from PostgreSQL database.
+ * GET /senders - Fetch all connected sender emails/domains
+ */
+app.get('/senders', async (req, res) => {
+  try {
+    const { rows } = await query('SELECT id, email_address, domain_name FROM senders ORDER BY id DESC');
+    return res.status(200).json({
+      success: true,
+      senders: rows
+    });
+  } catch (error) {
+    console.error('Error fetching senders:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch senders'
+    });
+  }
+});
+
+/**
+ * POST /senders - Add a new sender email/domain
+ */
+app.post('/senders', async (req, res) => {
+  try {
+    const { email_address, domain_name } = req.body;
+    if (!email_address || !email_address.includes('@')) {
+      return res.status(400).json({ success: false, error: 'Valid email address is required' });
+    }
+
+    const emailTrimmed = email_address.trim();
+    const computedDomain = domain_name ? domain_name.trim() : emailTrimmed.split('@')[1];
+
+    const { rows } = await query(
+      'INSERT INTO senders (email_address, domain_name) VALUES ($1, $2) ON CONFLICT (email_address) DO NOTHING RETURNING *',
+      [emailTrimmed, computedDomain]
+    );
+
+    addLog(`[System] Connected new sender domain: ${emailTrimmed}`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Sender added successfully',
+      sender: rows[0] || { email_address: emailTrimmed, domain_name: computedDomain }
+    });
+  } catch (error) {
+    console.error('Error adding sender:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to add sender'
+    });
+  }
+});
+
+/**
+ * DELETE /senders/:id - Remove sender
+ */
+app.delete('/senders/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await query('DELETE FROM senders WHERE id = $1', [id]);
+    return res.status(200).json({ success: true, message: 'Sender deleted' });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * GET /contacts - Fetch database contacts
  */
 app.get('/contacts', async (req, res) => {
   try {
@@ -141,7 +232,7 @@ app.get('/contacts', async (req, res) => {
 });
 
 /**
- * 1. Upload & Deploy Contacts (POST /upload & POST /deploy-contacts)
+ * POST /deploy-contacts & POST /upload
  */
 const handleDeployContacts = async (emails, res) => {
   try {
@@ -253,6 +344,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 
 /**
  * 3. Background Logic processMailing()
+ * Dynamically uses the selected sender domain email in sgMail.send(from)
  */
 async function processMailing() {
   try {
@@ -267,7 +359,8 @@ async function processMailing() {
       return;
     }
 
-    addLog(`[Sending] Processing batch of ${rows.length} pending contacts...`);
+    const senderEmailToUse = currentSenderEmail || process.env.FROM_EMAIL || 'no-reply@example.com';
+    addLog(`[Sending] Dispatching batch using sender domain: ${senderEmailToUse}...`);
 
     for (const row of rows) {
       const email = row.email;
@@ -275,7 +368,7 @@ async function processMailing() {
       try {
         const msg = {
           to: email,
-          from: process.env.FROM_EMAIL || 'no-reply@example.com',
+          from: senderEmailToUse,
           subject: process.env.EMAIL_SUBJECT || 'Mass Email Notification',
           text: process.env.EMAIL_BODY || 'Hello from our service!',
           html: process.env.EMAIL_HTML || '<p>Hello from our service!</p>'
@@ -298,7 +391,7 @@ async function processMailing() {
         addLog(`[Error] Failed to send email to ${email}: ${err.message || 'SendGrid Error'}`);
       }
 
-      // 1-second delay between emails
+      // CRITICAL: 1-second delay between emails
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
@@ -314,9 +407,12 @@ async function processMailing() {
 
 /**
  * 2. Start Background Mailing (POST /start-mailing)
+ * Accepts senderEmail in request body
  */
 app.post('/start-mailing', (req, res) => {
   try {
+    const { senderEmail, senderId, subject, body } = req.body;
+
     if (isMailing) {
       return res.status(400).json({
         success: false,
@@ -324,8 +420,17 @@ app.post('/start-mailing', (req, res) => {
       });
     }
 
+    const selectedSender = senderEmail || senderId;
+    if (!selectedSender) {
+      return res.status(400).json({
+        success: false,
+        error: 'Sender email or domain selection is required to launch campaign'
+      });
+    }
+
+    currentSenderEmail = selectedSender;
     isMailing = true;
-    addLog('[System] Start signal received. Launching background worker...');
+    addLog(`[System] Start signal received with sender: ${currentSenderEmail}. Launching worker...`);
 
     res.status(200).json({ message: 'Mailing started in background' });
 

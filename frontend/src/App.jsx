@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Mail, Sun, Moon, Upload, Plus, Trash2, Play, Pause, RotateCcw,
   FileText, CheckCircle2, AlertTriangle, Eye, Code, Terminal,
-  Database, Send, RefreshCw, Filter, X, ShieldCheck, Hourglass, Layers
+  Database, Send, RefreshCw, Filter, X, ShieldCheck, Hourglass, Layers,
+  Globe, Check
 } from 'lucide-react';
 import { createTheme, ThemeProvider, styled } from '@mui/material/styles';
 import {
@@ -25,7 +26,11 @@ import {
   FormControlLabel,
   Chip,
   Paper,
-  InputAdornment
+  InputAdornment,
+  MenuItem,
+  Select,
+  FormControl,
+  InputLabel
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 
@@ -45,11 +50,18 @@ const GlowingLinearProgress = styled(LinearProgress)(({ theme }) => ({
 }));
 
 function App() {
-  // Theme State: 'dark' (monochromatic black/white) or 'light' (white with black neon borders)
+  // Theme State: 'dark' or 'light'
   const [themeMode, setThemeMode] = useState('dark');
 
-  // App Navigation Tab State (0 = Campaign / Dashboard, 1 = Database / Contacts)
+  // Navigation Tab State (0 = Campaign Dashboard, 1 = Database / Contacts, 2 = Senders & Domains)
   const [mainTab, setMainTab] = useState(0);
+
+  // Senders & Domain Selection State
+  const [senders, setSenders] = useState([]);
+  const [selectedSenderEmail, setSelectedSenderEmail] = useState('');
+  const [newSenderEmail, setNewSenderEmail] = useState('');
+  const [newSenderDomain, setNewSenderDomain] = useState('');
+  const [isAddingSender, setIsAddingSender] = useState(false);
 
   // Staging Area State
   const [stagedEmails, setStagedEmails] = useState([]);
@@ -153,6 +165,16 @@ function App() {
             },
           },
         },
+        MuiSelect: {
+          styleOverrides: {
+            root: {
+              borderRadius: '8px',
+              backgroundColor: isDark ? '#050505' : '#ffffff',
+              border: isDark ? '1px solid #27272a' : '1px solid #000000',
+              boxShadow: isDark ? 'none' : '0 0 6px rgba(0,0,0,0.25)',
+            }
+          }
+        },
         MuiDataGrid: {
           styleOverrides: {
             root: {
@@ -190,7 +212,7 @@ function App() {
     });
   }, [themeMode]);
 
-  // Connect SSE for live campaign metrics
+  // SSE Real-time Status Connection
   useEffect(() => {
     let eventSource = null;
 
@@ -206,6 +228,9 @@ function App() {
         try {
           const data = JSON.parse(event.data);
           setStats(data);
+          if (data.currentSenderEmail && !selectedSenderEmail) {
+            setSelectedSenderEmail(data.currentSenderEmail);
+          }
         } catch (err) {
           console.error('Error parsing SSE event data:', err);
         }
@@ -245,18 +270,88 @@ function App() {
     }
   };
 
+  // Fetch Connected Sender Domains
+  const fetchSenders = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/senders`);
+      const data = await response.json();
+      if (response.ok && data.success) {
+        const senderList = data.senders || [];
+        setSenders(senderList);
+        if (senderList.length > 0 && !selectedSenderEmail) {
+          setSelectedSenderEmail(senderList[0].email_address);
+        }
+      }
+    } catch (err) {
+      console.error('Fetch senders error:', err);
+    }
+  };
+
   useEffect(() => {
     fetchDbContacts();
+    fetchSenders();
   }, []);
 
-  // Auto-scroll log console to latest message
+  // Auto-scroll logs
   useEffect(() => {
     if (logsEndRef.current) {
       logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [stats.logs]);
 
-  // Client-Side File Parsing for Staging Area (CSV / TXT)
+  // Add New Sender Domain
+  const handleAddSender = async (e) => {
+    e.preventDefault();
+    if (!newSenderEmail.trim() || !newSenderEmail.includes('@')) {
+      showToast('Please enter a valid sender email address.', 'warning');
+      return;
+    }
+
+    setIsAddingSender(true);
+    try {
+      const response = await fetch(`${BACKEND_URL}/senders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email_address: newSenderEmail.trim(),
+          domain_name: newSenderDomain.trim() || undefined
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to add sender domain');
+      }
+
+      showToast(`Sender domain ${data.sender.email_address} connected successfully!`, 'success');
+      setNewSenderEmail('');
+      setNewSenderDomain('');
+      fetchSenders();
+      setSelectedSenderEmail(data.sender.email_address);
+    } catch (err) {
+      showToast(`Error adding sender: ${err.message}`, 'error');
+    } finally {
+      setIsAddingSender(false);
+    }
+  };
+
+  // Delete Sender Domain
+  const handleDeleteSender = async (id, email) => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/senders/${id}`, { method: 'DELETE' });
+      if (response.ok) {
+        showToast(`Removed sender ${email}`, 'info');
+        fetchSenders();
+        if (selectedSenderEmail === email) {
+          setSelectedSenderEmail('');
+        }
+      }
+    } catch (err) {
+      showToast(`Failed to delete sender: ${err.message}`, 'error');
+    }
+  };
+
+  // Client-Side File Parsing for Staging
   const handleFileStaging = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -298,7 +393,6 @@ function App() {
       if (extractedEmails.length === 0) {
         showToast('No valid email addresses found in file.', 'warning');
       } else {
-        // Add to staged list without duplicates
         setStagedEmails((prev) => {
           const newSet = new Set(prev);
           extractedEmails.forEach((email) => newSet.add(email));
@@ -307,14 +401,13 @@ function App() {
         showToast(`Staged ${extractedEmails.length} emails from ${file.name}.`, 'info');
       }
 
-      // Reset file input
       if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
     reader.readAsText(file);
   };
 
-  // Add Single Email Manually to Staging
+  // Add Manual Email
   const handleAddManualEmail = (e) => {
     e.preventDefault();
     const cleanEmail = manualEmail.trim();
@@ -333,17 +426,17 @@ function App() {
     showToast(`Added ${cleanEmail} to staged queue.`, 'success');
   };
 
-  // Remove Single Staged Email
+  // Remove Staged Email
   const handleRemoveStagedEmail = (emailToRemove) => {
     setStagedEmails((prev) => prev.filter((e) => e !== emailToRemove));
   };
 
-  // Clear All Staged Emails
+  // Clear Staged List
   const handleClearStaged = () => {
     setStagedEmails([]);
   };
 
-  // Deploy Staged Emails to Backend & PostgreSQL
+  // Deploy Staged Emails to Backend
   const handleDeployStagedEmails = async () => {
     if (stagedEmails.length === 0) {
       showToast('No emails staged for deployment.', 'warning');
@@ -365,7 +458,7 @@ function App() {
 
       showToast(`Successfully deployed! ${data.insertedCount} new contacts inserted into DB.`, 'success');
       setStagedEmails([]);
-      fetchDbContacts(); // Refresh database table
+      fetchDbContacts();
     } catch (err) {
       console.error('Deploy error:', err);
       showToast(`Deploy failed: ${err.message}`, 'error');
@@ -374,8 +467,13 @@ function App() {
     }
   };
 
-  // Start Campaign
+  // Start Campaign (Requires Selected Sender Email)
   const handleStartCampaign = async () => {
+    if (!selectedSenderEmail) {
+      showToast('Please select a Sender Email / Domain from the dropdown first.', 'warning');
+      return;
+    }
+
     if (!subject.trim() || !body.trim()) {
       showToast('Subject and Body template are required.', 'warning');
       return;
@@ -385,7 +483,11 @@ function App() {
       const response = await fetch(`${BACKEND_URL}/start-mailing`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject, body })
+        body: JSON.stringify({
+          senderEmail: selectedSenderEmail,
+          subject,
+          body
+        })
       });
 
       const data = await response.json();
@@ -393,30 +495,25 @@ function App() {
         throw new Error(data.error || 'Failed to start campaign');
       }
 
-      showToast('Campaign started in background!', 'success');
+      showToast(`Campaign started in background using ${selectedSenderEmail}!`, 'success');
     } catch (err) {
       showToast(`Error launching campaign: ${err.message}`, 'error');
     }
   };
 
-  // Reset System / Contacts
   const handleResetConfirm = async () => {
     setResetDialogOpen(false);
     showToast('Reset action executed.', 'info');
   };
 
-  // Calculate Progress Percentage
   const getProgressPercentage = () => {
     if (stats.total === 0) return 0;
     return Math.round((stats.sent / stats.total) * 100);
   };
 
-  // Filtered contacts for DataGrid
   const filteredContacts = React.useMemo(() => {
     return dbContacts.filter((c) => {
-      if (errorsOnlyFilter && c.status !== 'error') {
-        return false;
-      }
+      if (errorsOnlyFilter && c.status !== 'error') return false;
       if (searchQuery.trim()) {
         return c.email.toLowerCase().includes(searchQuery.toLowerCase());
       }
@@ -424,7 +521,6 @@ function App() {
     });
   }, [dbContacts, errorsOnlyFilter, searchQuery]);
 
-  // DataGrid Columns definition
   const columns = [
     { field: 'id', headerName: 'ID', width: 90 },
     { field: 'email', headerName: 'Email Address', flex: 1, minWidth: 260 },
@@ -435,19 +531,13 @@ function App() {
       renderCell: (params) => {
         const val = params.value;
         let color = 'default';
-        let label = val;
-
-        if (val === 'sent') {
-          color = 'success';
-        } else if (val === 'error') {
-          color = 'error';
-        } else if (val === 'pending') {
-          color = 'warning';
-        }
+        if (val === 'sent') color = 'success';
+        else if (val === 'error') color = 'error';
+        else if (val === 'pending') color = 'warning';
 
         return (
           <Chip
-            label={label ? label.toUpperCase() : 'PENDING'}
+            label={val ? val.toUpperCase() : 'PENDING'}
             color={color}
             size="small"
             sx={{ fontWeight: 700, fontSize: '0.7rem' }}
@@ -482,7 +572,7 @@ function App() {
               </div>
             </div>
 
-            {/* Navigation Tabs in Header */}
+            {/* Navigation Tabs */}
             <Box sx={{ borderBottom: 0 }}>
               <Tabs
                 value={mainTab}
@@ -493,7 +583,7 @@ function App() {
                   '& .MuiTab-root': {
                     fontFamily: "'Outfit', sans-serif",
                     fontWeight: 700,
-                    fontSize: '0.9rem',
+                    fontSize: '0.85rem',
                     textTransform: 'none',
                     minHeight: '44px',
                     color: isDark ? '#a1a1aa' : '#52525b',
@@ -505,10 +595,11 @@ function App() {
               >
                 <Tab icon={<Terminal className="h-4 w-4" />} iconPosition="start" label="Campaign Dashboard" />
                 <Tab icon={<Database className="h-4 w-4" />} iconPosition="start" label={`Database / Contacts (${dbContacts.length})`} />
+                <Tab icon={<Globe className="h-4 w-4" />} iconPosition="start" label={`Senders & Domains (${senders.length})`} />
               </Tabs>
             </Box>
 
-            {/* Controls: Theme Toggle & SSE Status */}
+            {/* Theme Toggle & SSE Status */}
             <div className="flex items-center space-x-4">
               <span className={`flex items-center text-xs space-x-2 px-3.5 py-1.5 rounded-full border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black shadow-[0_0_6px_rgba(0,0,0,0.3)]'}`}>
                 <span className={`h-2 w-2 rounded-full ${connectionStatus === 'connected' ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' :
@@ -517,7 +608,6 @@ function App() {
                 <span className="font-mono font-semibold tracking-wide capitalize">{connectionStatus}</span>
               </span>
 
-              {/* Theme Toggle Button */}
               <Tooltip title={`Switch to ${isDark ? 'Light' : 'Dark'} Mode`}>
                 <Button
                   onClick={() => setThemeMode(isDark ? 'light' : 'dark')}
@@ -537,7 +627,7 @@ function App() {
           </div>
         </header>
 
-        {/* Main Application Container */}
+        {/* Main Application Content */}
         <main className="max-w-7xl mx-auto px-6 mt-8">
 
           {/* TAB 0: CAMPAIGN DASHBOARD */}
@@ -618,9 +708,58 @@ function App() {
                 </div>
               </section>
 
-              {/* Right Panel: Campaign Controls & Transmission Console */}
+              {/* Right Panel: Sender Selector, Controls & Stream */}
               <section className="lg:col-span-5 space-y-6">
-                {/* State Controller */}
+                {/* Requirement 3: Sender Domain / Email Selection Component */}
+                <div className="glass-panel rounded-2xl p-6 space-y-5">
+                  <div className="flex justify-between items-center">
+                    <h2 className="text-md font-display font-semibold flex items-center space-x-2.5">
+                      <Globe className="h-4.5 w-4.5" />
+                      <span>Sender Connection Selection</span>
+                    </h2>
+                    <Chip
+                      label={senders.length > 0 ? `${senders.length} Available` : 'No Senders'}
+                      color={senders.length > 0 ? 'success' : 'error'}
+                      size="small"
+                      sx={{ fontWeight: 700, fontSize: '0.7rem' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5 font-mono opacity-80">
+                      Select Authenticated Sender Email *
+                    </label>
+                    <FormControl fullWidth size="small">
+                      <Select
+                        value={selectedSenderEmail}
+                        onChange={(e) => setSelectedSenderEmail(e.target.value)}
+                        disabled={isSending || senders.length === 0}
+                        displayEmpty
+                        sx={{ fontSize: '0.85rem' }}
+                      >
+                        <MenuItem value="" disabled>
+                          <em>-- Select Sender Domain Email --</em>
+                        </MenuItem>
+                        {senders.map((s) => (
+                          <MenuItem key={s.id} value={s.email_address}>
+                            <div className="flex justify-between items-center w-full">
+                              <span className="font-semibold">{s.email_address}</span>
+                              <span className="text-xs opacity-60 font-mono">({s.domain_name})</span>
+                            </div>
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+
+                    {senders.length === 0 && (
+                      <p className="text-xs text-amber-500 mt-1 font-mono">
+                        No senders found. Please go to the "Senders & Domains" tab to add one.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* State Controller Card */}
                 <div className="glass-panel rounded-2xl p-6">
                   <div className="flex justify-between items-center mb-5">
                     <h2 className="text-md font-display font-semibold flex items-center space-x-2.5">
@@ -668,13 +807,13 @@ function App() {
                       </div>
                     </div>
 
-                    {/* Launch Buttons */}
+                    {/* Requirement 3: Disabled if no sender selected */}
                     <div className="flex space-x-3 pt-2">
                       <Button
                         variant="contained"
                         fullWidth
                         onClick={handleStartCampaign}
-                        disabled={isSending || !subject.trim() || !body.trim()}
+                        disabled={isSending || !selectedSenderEmail || !subject.trim() || !body.trim()}
                         startIcon={<Play className="h-4 w-4" />}
                       >
                         Launch Background Mailing
@@ -693,7 +832,7 @@ function App() {
                   </div>
                 </div>
 
-                {/* Console Log Stream */}
+                {/* Stream Log Console */}
                 <div className="glass-panel rounded-2xl p-6">
                   <h2 className="text-md font-display font-semibold mb-4 flex items-center space-x-2.5">
                     <Terminal className="h-4.5 w-4.5" />
@@ -703,7 +842,7 @@ function App() {
                   <div className={`w-full h-56 rounded-xl p-4 font-mono text-[11px] overflow-y-auto space-y-2 border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-900 text-zinc-100 border-black shadow-[0_0_6px_rgba(0,0,0,0.3)]'}`}>
                     {stats.logs.length === 0 ? (
                       <div className="opacity-40 italic h-full flex items-center justify-center text-center">
-                        No active logs. Launch campaign to stream status.
+                        No active logs. Launch campaign to stream output.
                       </div>
                     ) : (
                       stats.logs.map((log) => (
@@ -723,8 +862,7 @@ function App() {
           {/* TAB 1: DATABASE & CONTACTS STAGING */}
           {mainTab === 1 && (
             <div className="space-y-8">
-
-              {/* Requirement 3: Staging Area Card */}
+              {/* Staging Area Card */}
               <div className="glass-panel rounded-2xl p-6 space-y-6">
                 <div className="flex justify-between items-center border-b pb-4 border-zinc-800">
                   <div>
@@ -733,7 +871,7 @@ function App() {
                       <span>Contact Staging Area</span>
                     </h2>
                     <p className="text-xs opacity-70 mt-1">
-                      Upload files or add emails manually. Items are parsed client-side and staged before deploying to PostgreSQL.
+                      Upload files or add emails manually. Items are parsed client-side before deploying to PostgreSQL.
                     </p>
                   </div>
 
@@ -756,7 +894,6 @@ function App() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* File Upload Trigger */}
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider mb-2 font-mono opacity-80">
                       1. Upload CSV / TXT File
@@ -779,7 +916,6 @@ function App() {
                     </div>
                   </div>
 
-                  {/* Manual Single Email Input */}
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider mb-2 font-mono opacity-80">
                       2. Add Single Email Manually
@@ -804,7 +940,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* Staged Emails List Display */}
                 {stagedEmails.length > 0 ? (
                   <div className="pt-2">
                     <div className="flex justify-between items-center mb-3 font-mono">
@@ -848,7 +983,7 @@ function App() {
                 )}
               </div>
 
-              {/* Requirement 2: Database Contacts DataGrid Table */}
+              {/* Database Contacts Table */}
               <div className="glass-panel rounded-2xl p-6 space-y-6">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b pb-4 border-zinc-800">
                   <div>
@@ -862,7 +997,6 @@ function App() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-4">
-                    {/* Quick Filter Switch for Non-Working Emails (status = 'error') */}
                     <FormControlLabel
                       control={
                         <Switch
@@ -878,7 +1012,6 @@ function App() {
                       }
                     />
 
-                    {/* Refresh Table Button */}
                     <Button
                       variant="outlined"
                       size="small"
@@ -891,7 +1024,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* Search Bar */}
                 <div className="max-w-md">
                   <TextField
                     fullWidth
@@ -911,7 +1043,6 @@ function App() {
                   />
                 </div>
 
-                {/* DataGrid Table */}
                 <div style={{ height: 420, width: '100%' }}>
                   <DataGrid
                     rows={filteredContacts}
@@ -930,7 +1061,137 @@ function App() {
                   />
                 </div>
               </div>
+            </div>
+          )}
 
+          {/* TAB 2: SENDERS & DOMAIN MANAGEMENT */}
+          {mainTab === 2 && (
+            <div className="space-y-8">
+              {/* Requirement 3: Add Sender Domain Form */}
+              <div className="glass-panel rounded-2xl p-6 space-y-6">
+                <div className="border-b pb-4 border-zinc-800">
+                  <h2 className="text-lg font-display font-bold flex items-center space-x-2.5">
+                    <Globe className="h-5 w-5" />
+                    <span>Domain & Sender Connection Management</span>
+                  </h2>
+                  <p className="text-xs opacity-70 mt-1">
+                    Connect authenticated SendGrid sender emails and domain names to use in your email campaigns.
+                  </p>
+                </div>
+
+                <form onSubmit={handleAddSender} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                  <div className="md:col-span-5">
+                    <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 font-mono opacity-80">
+                      Sender Email Address *
+                    </label>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      placeholder="hello@yourdomain.com"
+                      value={newSenderEmail}
+                      onChange={(e) => setNewSenderEmail(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="md:col-span-4">
+                    <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 font-mono opacity-80">
+                      Domain Name (Optional)
+                    </label>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      placeholder="yourdomain.com"
+                      value={newSenderDomain}
+                      onChange={(e) => setNewSenderDomain(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="md:col-span-3">
+                    <Button
+                      type="submit"
+                      variant="contained"
+                      fullWidth
+                      disabled={isAddingSender}
+                      startIcon={isAddingSender ? <CircularProgress size={16} color="inherit" /> : <Plus className="h-4 w-4" />}
+                      sx={{
+                        backgroundColor: isDark ? '#ffffff' : '#000000',
+                        color: isDark ? '#000000' : '#ffffff',
+                        fontWeight: 700,
+                        py: '7px'
+                      }}
+                    >
+                      Connect Domain
+                    </Button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Senders Table / List */}
+              <div className="glass-panel rounded-2xl p-6 space-y-4">
+                <h3 className="text-md font-display font-bold flex items-center space-x-2">
+                  <ShieldCheck className="h-4.5 w-4.5" />
+                  <span>Connected Sender Domains ({senders.length})</span>
+                </h3>
+
+                {senders.length === 0 ? (
+                  <div className="text-center py-8 opacity-50 border border-dashed rounded-xl text-xs font-mono">
+                    No sender domains connected yet. Add a sender email above.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {senders.map((s) => (
+                      <div
+                        key={s.id}
+                        className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 transition-all ${selectedSenderEmail === s.email_address
+                          ? (isDark ? 'border-white bg-zinc-900/80 shadow-[0_0_10px_rgba(255,255,255,0.1)]' : 'border-black bg-zinc-50 shadow-[0_0_8px_rgba(0,0,0,0.3)]')
+                          : (isDark ? 'border-zinc-800 bg-zinc-950/50' : 'border-zinc-300 bg-white')
+                          }`}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="font-bold text-sm">{s.email_address}</p>
+                            <p className="text-xs font-mono opacity-60 mt-0.5">{s.domain_name}</p>
+                          </div>
+                          <Chip
+                            label="VERIFIED"
+                            color="success"
+                            size="small"
+                            sx={{ fontWeight: 700, fontSize: '0.65rem' }}
+                          />
+                        </div>
+
+                        <div className="flex justify-between items-center pt-2 border-t border-zinc-800">
+                          {selectedSenderEmail === s.email_address ? (
+                            <span className="text-xs font-bold flex items-center space-x-1 font-mono text-emerald-500">
+                              <Check className="h-3.5 w-3.5" />
+                              <span>Active Selection</span>
+                            </span>
+                          ) : (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              onClick={() => setSelectedSenderEmail(s.email_address)}
+                              sx={{ fontSize: '0.7rem', py: '2px', px: '8px' }}
+                            >
+                              Select as Active
+                            </Button>
+                          )}
+
+                          <Button
+                            size="small"
+                            color="error"
+                            onClick={() => handleDeleteSender(s.id, s.email_address)}
+                            sx={{ minWidth: '32px', width: '32px', p: 0 }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
