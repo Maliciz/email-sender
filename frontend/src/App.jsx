@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Upload, Play, Pause, RotateCcw, Mail, FileText,
-  CheckCircle2, AlertTriangle, Eye, Code, Terminal,
-  Layers, Hourglass, ShieldCheck
+  Mail, Sun, Moon, Upload, Plus, Trash2, Play, Pause, RotateCcw,
+  FileText, CheckCircle2, AlertTriangle, Eye, Code, Terminal,
+  Database, Send, RefreshCw, Filter, X, ShieldCheck, Hourglass, Layers
 } from 'lucide-react';
 import { createTheme, ThemeProvider, styled } from '@mui/material/styles';
 import {
@@ -20,119 +20,52 @@ import {
   LinearProgress,
   CircularProgress,
   Tooltip,
-  Box
+  Box,
+  Switch,
+  FormControlLabel,
+  Chip,
+  Paper,
+  InputAdornment
 } from '@mui/material';
+import { DataGrid } from '@mui/x-data-grid';
 
 const BACKEND_URL = 'http://localhost:5000';
 
-// Custom MUI Crimson Dark Theme
-const darkCrimsonTheme = createTheme({
-  palette: {
-    mode: 'dark',
-    primary: {
-      main: '#ef4444', // Scarlet red
-      light: '#f87171',
-      dark: '#b91c1c',
-    },
-    secondary: {
-      main: '#991b1b', // Crimson red
-    },
-    background: {
-      default: '#05070c',
-      paper: '#090d16',
-    },
-    text: {
-      primary: '#f3f4f6',
-      secondary: '#94a3b8',
-    },
-  },
-  typography: {
-    fontFamily: "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif",
-    button: {
-      fontWeight: 600,
-      textTransform: 'none',
-    },
-  },
-  components: {
-    MuiButton: {
-      styleOverrides: {
-        root: {
-          borderRadius: '12px',
-          padding: '10px 20px',
-          boxShadow: 'none',
-          '&:hover': {
-            boxShadow: '0 0 15px rgba(239, 68, 68, 0.2)',
-          },
-        },
-      },
-    },
-    MuiTextField: {
-      styleOverrides: {
-        root: {
-          '& .MuiOutlinedInput-root': {
-            borderRadius: '12px',
-            backgroundColor: 'rgba(5, 7, 12, 0.65)',
-            '& fieldset': {
-              borderColor: 'rgba(239, 68, 68, 0.15)',
-              transition: 'border-color 0.2s ease-in-out',
-            },
-            '&:hover fieldset': {
-              borderColor: 'rgba(239, 68, 68, 0.35)',
-            },
-            '&.Mui-focused fieldset': {
-              borderColor: '#ef4444',
-              boxShadow: '0 0 10px rgba(239, 68, 68, 0.15)',
-            },
-          },
-        },
-      },
-    },
-    MuiTab: {
-      styleOverrides: {
-        root: {
-          fontFamily: "'Outfit', sans-serif",
-          fontWeight: 600,
-          textTransform: 'none',
-          fontSize: '0.85rem',
-          minHeight: '40px',
-          padding: '6px 16px',
-        },
-      },
-    },
-    MuiDialog: {
-      styleOverrides: {
-        paper: {
-          backgroundColor: '#090d16',
-          border: '1px solid rgba(239, 68, 68, 0.25)',
-          borderRadius: '16px',
-          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.5)',
-        },
-      },
-    },
-  },
-});
-
-// Styled Glowing Progress Bar
-const GlowingLinearProgress = styled(LinearProgress)(() => ({
+// Glowing Progress Bar
+const GlowingLinearProgress = styled(LinearProgress)(({ theme }) => ({
   height: 10,
   borderRadius: 5,
-  backgroundColor: 'rgba(5, 7, 12, 0.8)',
-  border: '1px solid rgba(239, 68, 68, 0.12)',
+  backgroundColor: theme.palette.mode === 'dark' ? '#18181b' : '#e4e4e7',
+  border: theme.palette.mode === 'dark' ? '1px solid #27272a' : '1px solid #000000',
   '& .MuiLinearProgress-bar': {
     borderRadius: 5,
-    background: 'linear-gradient(90deg, #991b1b 0%, #ef4444 100%)',
-    boxShadow: '0 0 8px rgba(239, 68, 68, 0.3)',
+    backgroundColor: theme.palette.mode === 'dark' ? '#ffffff' : '#000000',
+    boxShadow: theme.palette.mode === 'dark' ? '0 0 10px rgba(255, 255, 255, 0.4)' : '0 0 10px rgba(0, 0, 0, 0.5)',
   },
 }));
 
 function App() {
-  const [file, setFile] = useState(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadError, setUploadError] = useState(null);
+  // Theme State: 'dark' (monochromatic black/white) or 'light' (white with black neon borders)
+  const [themeMode, setThemeMode] = useState('dark');
 
+  // App Navigation Tab State (0 = Campaign / Dashboard, 1 = Database / Contacts)
+  const [mainTab, setMainTab] = useState(0);
+
+  // Staging Area State
+  const [stagedEmails, setStagedEmails] = useState([]);
+  const [manualEmail, setManualEmail] = useState('');
+  const [isDeploying, setIsDeploying] = useState(false);
+
+  // Database Contacts State
+  const [dbContacts, setDbContacts] = useState([]);
+  const [isLoadingContacts, setIsLoadingContacts] = useState(false);
+  const [errorsOnlyFilter, setErrorsOnlyFilter] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Campaign State
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
-  const [activeTab, setActiveTab] = useState(0); // 0 = edit, 1 = preview
+  const [activeEditorTab, setActiveEditorTab] = useState(0); // 0 = edit HTML, 1 = live preview
 
   const [stats, setStats] = useState({
     status: 'idle',
@@ -144,6 +77,7 @@ function App() {
   });
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
 
+  // References
   const fileInputRef = useRef(null);
   const logsEndRef = useRef(null);
 
@@ -155,7 +89,108 @@ function App() {
     setToast({ open: true, message, severity });
   };
 
-  // Setup EventSource for SSE status updates
+  // Build MUI Dynamic Theme
+  const muiTheme = React.useMemo(() => {
+    const isDark = themeMode === 'dark';
+    return createTheme({
+      palette: {
+        mode: themeMode,
+        primary: {
+          main: isDark ? '#ffffff' : '#000000',
+          contrastText: isDark ? '#000000' : '#ffffff',
+        },
+        background: {
+          default: isDark ? '#000000' : '#ffffff',
+          paper: isDark ? '#09090b' : '#ffffff',
+        },
+        text: {
+          primary: isDark ? '#ffffff' : '#000000',
+          secondary: isDark ? '#a1a1aa' : '#52525b',
+        },
+      },
+      typography: {
+        fontFamily: "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif",
+        button: {
+          fontWeight: 600,
+          textTransform: 'none',
+        },
+      },
+      components: {
+        MuiButton: {
+          styleOverrides: {
+            root: {
+              borderRadius: '8px',
+              padding: '8px 18px',
+              border: isDark ? '1px solid #27272a' : '1px solid #000000',
+              boxShadow: isDark ? 'none' : '0 0 6px rgba(0,0,0,0.3)',
+              '&:hover': {
+                boxShadow: isDark ? '0 0 10px rgba(255, 255, 255, 0.2)' : '0 0 12px rgba(0, 0, 0, 0.6)',
+                borderColor: isDark ? '#ffffff' : '#000000',
+              },
+            },
+          },
+        },
+        MuiOutlinedInput: {
+          styleOverrides: {
+            root: {
+              borderRadius: '8px',
+              backgroundColor: isDark ? '#050505' : '#ffffff',
+              border: isDark ? '1px solid #27272a' : '1px solid #000000',
+              boxShadow: isDark ? 'none' : '0 0 6px rgba(0,0,0,0.25)',
+              '& fieldset': {
+                borderColor: 'transparent',
+              },
+              '&:hover fieldset': {
+                borderColor: 'transparent',
+              },
+              '&.Mui-focused fieldset': {
+                borderColor: 'transparent',
+              },
+              '&.Mui-focused': {
+                borderColor: isDark ? '#ffffff' : '#000000',
+                boxShadow: isDark ? '0 0 10px rgba(255, 255, 255, 0.2)' : '0 0 12px rgba(0, 0, 0, 0.65)',
+              },
+            },
+          },
+        },
+        MuiDataGrid: {
+          styleOverrides: {
+            root: {
+              border: isDark ? '1px solid #27272a' : '1px solid #000000',
+              borderRadius: '12px',
+              backgroundColor: isDark ? '#09090b' : '#ffffff',
+              boxShadow: isDark ? 'none' : '0 0 8px rgba(0, 0, 0, 0.35)',
+              color: isDark ? '#ffffff' : '#000000',
+              '& .MuiDataGrid-cell': {
+                borderColor: isDark ? '#27272a' : '#000000',
+              },
+              '& .MuiDataGrid-columnHeaders': {
+                borderColor: isDark ? '#27272a' : '#000000',
+                backgroundColor: isDark ? '#18181b' : '#f4f4f5',
+                color: isDark ? '#ffffff' : '#000000',
+                fontWeight: 700,
+              },
+              '& .MuiDataGrid-footerContainer': {
+                borderColor: isDark ? '#27272a' : '#000000',
+              },
+            },
+          },
+        },
+        MuiPaper: {
+          styleOverrides: {
+            root: {
+              backgroundImage: 'none',
+              backgroundColor: isDark ? '#09090b' : '#ffffff',
+              border: isDark ? '1px solid #27272a' : '1px solid #000000',
+              boxShadow: isDark ? '0 10px 30px rgba(0,0,0,0.8)' : '0 0 12px rgba(0, 0, 0, 0.4)',
+            },
+          },
+        },
+      },
+    });
+  }, [themeMode]);
+
+  // Connect SSE for live campaign metrics
   useEffect(() => {
     let eventSource = null;
 
@@ -165,7 +200,6 @@ function App() {
 
       eventSource.onopen = () => {
         setConnectionStatus('connected');
-        setUploadError(null);
       };
 
       eventSource.onmessage = (event) => {
@@ -173,15 +207,14 @@ function App() {
           const data = JSON.parse(event.data);
           setStats(data);
         } catch (err) {
-          console.error('Error parsing SSE data:', err);
+          console.error('Error parsing SSE event data:', err);
         }
       };
 
       eventSource.onerror = (err) => {
-        console.error('SSE Error:', err);
+        console.error('SSE connection error:', err);
         setConnectionStatus('disconnected');
         eventSource.close();
-        // Retry connection in 3 seconds
         setTimeout(connectSSE, 3000);
       };
     };
@@ -189,66 +222,167 @@ function App() {
     connectSSE();
 
     return () => {
-      if (eventSource) {
-        eventSource.close();
-      }
+      if (eventSource) eventSource.close();
     };
   }, []);
 
-  // Auto-scroll logs to bottom when new logs arrive
+  // Fetch Database Contacts
+  const fetchDbContacts = async () => {
+    setIsLoadingContacts(true);
+    try {
+      const response = await fetch(`${BACKEND_URL}/contacts`);
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setDbContacts(data.contacts || []);
+      } else {
+        throw new Error(data.error || 'Failed to load contacts');
+      }
+    } catch (err) {
+      console.error('Fetch contacts error:', err);
+      showToast(`Database error: ${err.message}`, 'error');
+    } finally {
+      setIsLoadingContacts(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDbContacts();
+  }, []);
+
+  // Auto-scroll log console to latest message
   useEffect(() => {
     if (logsEndRef.current) {
       logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [stats.logs]);
 
-  // Handle CSV/TXT file upload
-  const handleFileUpload = async (e) => {
-    const selectedFile = e.target.files[0];
-    if (!selectedFile) return;
+  // Client-Side File Parsing for Staging Area (CSV / TXT)
+  const handleFileStaging = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-    const ext = selectedFile.name.split('.').pop().toLowerCase();
+    const ext = file.name.split('.').pop().toLowerCase();
     if (ext !== 'csv' && ext !== 'txt') {
-      setUploadError('Invalid format. Please select a CSV or TXT file.');
-      showToast('Invalid format. Please select a CSV or TXT file.', 'error');
+      showToast('Unsupported file type. Please choose a CSV or TXT file.', 'error');
       return;
     }
 
-    setFile(selectedFile);
-    setUploadError(null);
-    setIsUploading(true);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target.result;
+      const lines = content.split(/\r?\n/);
+      const extractedEmails = [];
 
-    const formData = new FormData();
-    formData.append('file', selectedFile);
+      for (let line of lines) {
+        let trimmed = line.trim();
+        if (!trimmed) continue;
+        if (trimmed.toLowerCase() === 'email') continue;
 
+        if (trimmed.includes(',')) {
+          const parts = trimmed.split(',');
+          for (const part of parts) {
+            const cleanPart = part.trim().replace(/^["']|["']$/g, '');
+            if (cleanPart.includes('@')) {
+              trimmed = cleanPart;
+              break;
+            }
+          }
+        }
+
+        trimmed = trimmed.replace(/^["']|["']$/g, '');
+        if (trimmed && trimmed.includes('@')) {
+          extractedEmails.push(trimmed);
+        }
+      }
+
+      if (extractedEmails.length === 0) {
+        showToast('No valid email addresses found in file.', 'warning');
+      } else {
+        // Add to staged list without duplicates
+        setStagedEmails((prev) => {
+          const newSet = new Set(prev);
+          extractedEmails.forEach((email) => newSet.add(email));
+          return Array.from(newSet);
+        });
+        showToast(`Staged ${extractedEmails.length} emails from ${file.name}.`, 'info');
+      }
+
+      // Reset file input
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    reader.readAsText(file);
+  };
+
+  // Add Single Email Manually to Staging
+  const handleAddManualEmail = (e) => {
+    e.preventDefault();
+    const cleanEmail = manualEmail.trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      showToast('Please enter a valid email address.', 'warning');
+      return;
+    }
+
+    if (stagedEmails.includes(cleanEmail)) {
+      showToast('Email is already in the staged list.', 'info');
+      return;
+    }
+
+    setStagedEmails((prev) => [...prev, cleanEmail]);
+    setManualEmail('');
+    showToast(`Added ${cleanEmail} to staged queue.`, 'success');
+  };
+
+  // Remove Single Staged Email
+  const handleRemoveStagedEmail = (emailToRemove) => {
+    setStagedEmails((prev) => prev.filter((e) => e !== emailToRemove));
+  };
+
+  // Clear All Staged Emails
+  const handleClearStaged = () => {
+    setStagedEmails([]);
+  };
+
+  // Deploy Staged Emails to Backend & PostgreSQL
+  const handleDeployStagedEmails = async () => {
+    if (stagedEmails.length === 0) {
+      showToast('No emails staged for deployment.', 'warning');
+      return;
+    }
+
+    setIsDeploying(true);
     try {
-      const response = await fetch(`${BACKEND_URL}/upload`, {
+      const response = await fetch(`${BACKEND_URL}/deploy-contacts`, {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails: stagedEmails })
       });
 
       const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to upload contacts');
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to deploy contacts');
       }
-      showToast(`Successfully loaded directory. Detected ${data.count} contacts.`, 'success');
+
+      showToast(`Successfully deployed! ${data.insertedCount} new contacts inserted into DB.`, 'success');
+      setStagedEmails([]);
+      fetchDbContacts(); // Refresh database table
     } catch (err) {
-      setUploadError(err.message);
-      showToast(err.message, 'error');
+      console.error('Deploy error:', err);
+      showToast(`Deploy failed: ${err.message}`, 'error');
     } finally {
-      setIsUploading(false);
+      setIsDeploying(false);
     }
   };
 
-  // Start campaign
-  const handleStart = async () => {
+  // Start Campaign
+  const handleStartCampaign = async () => {
     if (!subject.trim() || !body.trim()) {
-      showToast('Please fill out both Subject and Body.', 'warning');
+      showToast('Subject and Body template are required.', 'warning');
       return;
     }
 
     try {
-      const response = await fetch(`${BACKEND_URL}/start`, {
+      const response = await fetch(`${BACKEND_URL}/start-mailing`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ subject, body })
@@ -256,429 +390,567 @@ function App() {
 
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to start sending');
+        throw new Error(data.error || 'Failed to start campaign');
       }
-      showToast('Campaign launched successfully!', 'success');
+
+      showToast('Campaign started in background!', 'success');
     } catch (err) {
-      showToast(`Error starting sender: ${err.message}`, 'error');
+      showToast(`Error launching campaign: ${err.message}`, 'error');
     }
   };
 
-  // Pause campaign
-  const handlePause = async () => {
-    try {
-      const response = await fetch(`${BACKEND_URL}/pause`, {
-        method: 'POST'
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to pause sending');
-      }
-      showToast('Campaign transmission paused.', 'info');
-    } catch (err) {
-      showToast(`Error pausing sender: ${err.message}`, 'error');
-    }
-  };
-
-  // Reset campaign state
+  // Reset System / Contacts
   const handleResetConfirm = async () => {
     setResetDialogOpen(false);
-    try {
-      const response = await fetch(`${BACKEND_URL}/reset`, {
-        method: 'POST'
-      });
-
-      if (response.ok) {
-        setFile(null);
-        setSubject('');
-        setBody('');
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
-        }
-        showToast('Campaign status and loaded contacts reset completely.', 'success');
-      } else {
-        const data = await response.json();
-        throw new Error(data.error || 'Reset failed');
-      }
-    } catch (err) {
-      showToast(`Error resetting: ${err.message}`, 'error');
-    }
+    showToast('Reset action executed.', 'info');
   };
 
+  // Calculate Progress Percentage
   const getProgressPercentage = () => {
     if (stats.total === 0) return 0;
     return Math.round((stats.sent / stats.total) * 100);
   };
 
+  // Filtered contacts for DataGrid
+  const filteredContacts = React.useMemo(() => {
+    return dbContacts.filter((c) => {
+      if (errorsOnlyFilter && c.status !== 'error') {
+        return false;
+      }
+      if (searchQuery.trim()) {
+        return c.email.toLowerCase().includes(searchQuery.toLowerCase());
+      }
+      return true;
+    });
+  }, [dbContacts, errorsOnlyFilter, searchQuery]);
+
+  // DataGrid Columns definition
+  const columns = [
+    { field: 'id', headerName: 'ID', width: 90 },
+    { field: 'email', headerName: 'Email Address', flex: 1, minWidth: 260 },
+    {
+      field: 'status',
+      headerName: 'Status',
+      width: 160,
+      renderCell: (params) => {
+        const val = params.value;
+        let color = 'default';
+        let label = val;
+
+        if (val === 'sent') {
+          color = 'success';
+        } else if (val === 'error') {
+          color = 'error';
+        } else if (val === 'pending') {
+          color = 'warning';
+        }
+
+        return (
+          <Chip
+            label={label ? label.toUpperCase() : 'PENDING'}
+            color={color}
+            size="small"
+            sx={{ fontWeight: 700, fontSize: '0.7rem' }}
+          />
+        );
+      }
+    }
+  ];
+
   const isSending = stats.status === 'sending';
-  const isPaused = stats.status === 'paused';
-  const isCompleted = stats.status === 'completed';
+  const isDark = themeMode === 'dark';
 
   return (
-    <ThemeProvider theme={darkCrimsonTheme}>
-      <div className="min-h-screen bg-[#05070c] text-[#e2e8f0] pb-12 font-sans selection:bg-red-500/20 selection:text-red-300 relative overflow-x-hidden">
-
-        {/* Deep Crimson Ambient Glow Blobs */}
-        <div className="absolute top-0 left-1/4 w-[450px] h-[450px] bg-red-950/10 rounded-full blur-[140px] pointer-events-none animate-crimson-pulse-slow" />
-        <div className="absolute top-[40vh] right-1/4 w-[350px] h-[350px] bg-red-900/5 rounded-full blur-[120px] pointer-events-none" />
+    <ThemeProvider theme={muiTheme}>
+      <div className={`min-h-screen pb-12 transition-colors duration-300 ${isDark ? 'dark-mode bg-black text-white' : 'light-mode bg-white text-black'}`}>
 
         {/* Top Navbar */}
-        <header className="border-b border-red-950/50 bg-[#090d16]/80 backdrop-blur-md sticky top-0 z-50">
+        <header className={`border-b sticky top-0 z-50 backdrop-blur-md ${isDark ? 'bg-black/90 border-zinc-800' : 'bg-white/90 border-black'}`}>
           <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+            {/* Logo */}
             <div className="flex items-center space-x-3">
-              <div className="bg-gradient-to-tr from-red-600 to-red-800 p-2.5 rounded-xl shadow-lg shadow-red-500/10 border border-red-500/25">
-                <Mail className="h-5 w-5 text-white stroke-[2]" />
+              <div className={`p-2.5 rounded-xl border ${isDark ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-black text-white border-black shadow-[0_0_8px_rgba(0,0,0,0.5)]'}`}>
+                <Mail className="h-5 w-5 stroke-[2.5]" />
               </div>
               <div>
-                <h1 className="text-xl font-display font-bold tracking-tight text-white m-0 leading-none">
-                  SEN<span className="text-red-500">DER</span>
+                <h1 className="text-xl font-display font-bold tracking-tight m-0 leading-none">
+                  SEND<span className={isDark ? 'text-zinc-400' : 'text-zinc-700'}>GRID</span> SAAS
                 </h1>
-                <p className="text-[10px] text-slate-400 font-mono tracking-wider m-0 mt-1 uppercase"></p>
+                <p className="text-[10px] font-mono tracking-wider m-0 mt-1 uppercase opacity-70">
+                  Cloud Mail Distribution Engine
+                </p>
               </div>
             </div>
 
+            {/* Navigation Tabs in Header */}
+            <Box sx={{ borderBottom: 0 }}>
+              <Tabs
+                value={mainTab}
+                onChange={(e, val) => setMainTab(val)}
+                textColor="primary"
+                indicatorColor="primary"
+                sx={{
+                  '& .MuiTab-root': {
+                    fontFamily: "'Outfit', sans-serif",
+                    fontWeight: 700,
+                    fontSize: '0.9rem',
+                    textTransform: 'none',
+                    minHeight: '44px',
+                    color: isDark ? '#a1a1aa' : '#52525b',
+                    '&.Mui-selected': {
+                      color: isDark ? '#ffffff' : '#000000',
+                    }
+                  }
+                }}
+              >
+                <Tab icon={<Terminal className="h-4 w-4" />} iconPosition="start" label="Campaign Dashboard" />
+                <Tab icon={<Database className="h-4 w-4" />} iconPosition="start" label={`Database / Contacts (${dbContacts.length})`} />
+              </Tabs>
+            </Box>
+
+            {/* Controls: Theme Toggle & SSE Status */}
             <div className="flex items-center space-x-4">
-              <span className="flex items-center text-xs space-x-2 bg-[#05070c] px-3.5 py-1.5 rounded-full border border-red-950/80">
+              <span className={`flex items-center text-xs space-x-2 px-3.5 py-1.5 rounded-full border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black shadow-[0_0_6px_rgba(0,0,0,0.3)]'}`}>
                 <span className={`h-2 w-2 rounded-full ${connectionStatus === 'connected' ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' :
-                  connectionStatus === 'connecting' ? 'bg-amber-500 animate-pulse' : 'bg-red-500 animate-ping'
+                  connectionStatus === 'connecting' ? 'bg-amber-500 animate-pulse' : 'bg-red-500'
                   }`} />
-                <span className="text-slate-300 capitalize font-mono font-semibold tracking-wide">{connectionStatus}</span>
+                <span className="font-mono font-semibold tracking-wide capitalize">{connectionStatus}</span>
               </span>
+
+              {/* Theme Toggle Button */}
+              <Tooltip title={`Switch to ${isDark ? 'Light' : 'Dark'} Mode`}>
+                <Button
+                  onClick={() => setThemeMode(isDark ? 'light' : 'dark')}
+                  variant="outlined"
+                  sx={{
+                    minWidth: '40px',
+                    width: '40px',
+                    height: '40px',
+                    p: 0,
+                    color: isDark ? '#ffffff' : '#000000',
+                  }}
+                >
+                  {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                </Button>
+              </Tooltip>
             </div>
           </div>
         </header>
 
-        {/* Dashboard Grid Container */}
-        <main className="max-w-7xl mx-auto px-6 mt-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Main Application Container */}
+        <main className="max-w-7xl mx-auto px-6 mt-8">
 
-          {/* Left panel: File selection & Subject/Body template (Lg: 7 cols) */}
-          <section className="lg:col-span-7 space-y-6">
+          {/* TAB 0: CAMPAIGN DASHBOARD */}
+          {mainTab === 0 && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Left Panel: Subject & Body Editor */}
+              <section className="lg:col-span-7 space-y-6">
+                <div className="glass-panel rounded-2xl p-6 relative overflow-hidden">
+                  <div className="flex justify-between items-center mb-5">
+                    <h2 className="text-md font-display font-semibold flex items-center space-x-2.5">
+                      <FileText className="h-4.5 w-4.5" />
+                      <span>Broadcast Content & Blueprint</span>
+                    </h2>
 
-            {/* File Upload card */}
-            <div className="glass-panel rounded-2xl p-6 relative overflow-hidden group">
-              <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-red-500/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-
-              <h2 className="text-md font-display font-semibold text-white mb-4 flex items-center space-x-2.5">
-                <Layers className="h-4.5 w-4.5 text-red-500" />
-                <span>Contact Directory Source</span>
-              </h2>
-
-              <div
-                onClick={() => !isSending && fileInputRef.current?.click()}
-                className={`border border-dashed rounded-xl p-6 text-center transition-all cursor-pointer ${isSending ? 'border-red-950/40 bg-slate-950/20 cursor-not-allowed opacity-50' :
-                  file ? 'border-red-500/40 bg-red-950/5 hover:bg-red-950/10' : 'border-red-950 hover:border-red-900/60 bg-red-950/5 hover:bg-red-950/10'
-                  }`}
-              >
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileUpload}
-                  accept=".csv,.txt"
-                  className="hidden"
-                  disabled={isSending}
-                />
-
-                {isUploading ? (
-                  <div className="space-y-3 py-2">
-                    <CircularProgress size={32} color="primary" />
-                    <p className="text-xs text-red-400 font-mono animate-pulse">Converting and indexing records...</p>
+                    <Tabs
+                      value={activeEditorTab}
+                      onChange={(e, val) => setActiveEditorTab(val)}
+                      textColor="primary"
+                      indicatorColor="primary"
+                      sx={{ minHeight: '36px' }}
+                    >
+                      <Tab label="Edit HTML" icon={<Code className="h-3.5 w-3.5" />} iconPosition="start" sx={{ minHeight: '36px', fontSize: '0.8rem' }} />
+                      <Tab label="Live Render" icon={<Eye className="h-3.5 w-3.5" />} iconPosition="start" sx={{ minHeight: '36px', fontSize: '0.8rem' }} />
+                    </Tabs>
                   </div>
-                ) : file ? (
-                  <div className="space-y-2">
-                    <CheckCircle2 className="h-7 w-7 text-red-500 mx-auto" />
-                    <p className="text-xs font-semibold text-white">{file.name}</p>
-                    <p className="text-[11px] text-slate-400 font-mono">
-                      {(file.size / 1024).toFixed(1)} KB • {stats.total.toLocaleString()} records detected
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5 font-mono opacity-80">Subject Line</label>
+                      <TextField
+                        fullWidth
+                        variant="outlined"
+                        value={subject}
+                        onChange={(e) => setSubject(e.target.value)}
+                        disabled={isSending}
+                        placeholder="e.g. System update notification"
+                      />
+                    </div>
+
+                    {activeEditorTab === 0 ? (
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5 font-mono opacity-80">HTML Content</label>
+                        <TextField
+                          fullWidth
+                          multiline
+                          rows={11}
+                          variant="outlined"
+                          value={body}
+                          onChange={(e) => setBody(e.target.value)}
+                          disabled={isSending}
+                          placeholder="<h2>Hello!</h2><p>Your content here.</p>"
+                          slotProps={{
+                            input: {
+                              style: {
+                                fontFamily: 'monospace',
+                                fontSize: '0.8rem',
+                              }
+                            }
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5 font-mono opacity-80">Visualized Live Preview</label>
+                        <div className={`w-full min-h-[285px] max-h-[360px] overflow-y-auto rounded-xl p-5 border ${isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-200' : 'bg-slate-50 border-black text-black shadow-[0_0_6px_rgba(0,0,0,0.2)]'}`}>
+                          {body.trim() ? (
+                            <div dangerouslySetInnerHTML={{ __html: body }} />
+                          ) : (
+                            <div className="flex flex-col items-center justify-center min-h-[240px] opacity-40 space-y-2">
+                              <Eye className="h-8 w-8" />
+                              <p className="text-xs font-mono">Template body is empty</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              {/* Right Panel: Campaign Controls & Transmission Console */}
+              <section className="lg:col-span-5 space-y-6">
+                {/* State Controller */}
+                <div className="glass-panel rounded-2xl p-6">
+                  <div className="flex justify-between items-center mb-5">
+                    <h2 className="text-md font-display font-semibold flex items-center space-x-2.5">
+                      <Hourglass className="h-4.5 w-4.5" />
+                      <span>Campaign Controller</span>
+                    </h2>
+
+                    <Chip
+                      label={stats.status.toUpperCase()}
+                      color={isSending ? 'primary' : stats.status === 'completed' ? 'success' : 'default'}
+                      size="small"
+                      sx={{ fontWeight: 700, fontSize: '0.7rem' }}
+                    />
+                  </div>
+
+                  <div className="space-y-5">
+                    <div>
+                      <div className="flex justify-between text-xs font-semibold mb-2 font-mono">
+                        <span>Transmission Progress</span>
+                        <span>{getProgressPercentage()}%</span>
+                      </div>
+                      <GlowingLinearProgress variant="determinate" value={getProgressPercentage()} />
+                    </div>
+
+                    {/* Stats Grid */}
+                    <div className="grid grid-cols-2 gap-3 font-mono">
+                      <div className={`p-3 rounded-xl text-center border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black shadow-[0_0_4px_rgba(0,0,0,0.2)]'}`}>
+                        <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Total Contacts</p>
+                        <p className="text-lg font-bold mt-0.5">{stats.total.toLocaleString()}</p>
+                      </div>
+
+                      <div className={`p-3 rounded-xl text-center border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black shadow-[0_0_4px_rgba(0,0,0,0.2)]'}`}>
+                        <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Sent</p>
+                        <p className="text-lg font-bold mt-0.5">{stats.sent.toLocaleString()}</p>
+                      </div>
+
+                      <div className={`p-3 rounded-xl text-center border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black shadow-[0_0_4px_rgba(0,0,0,0.2)]'}`}>
+                        <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Remaining</p>
+                        <p className="text-lg font-bold mt-0.5">{stats.remaining.toLocaleString()}</p>
+                      </div>
+
+                      <div className={`p-3 rounded-xl text-center border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black shadow-[0_0_4px_rgba(0,0,0,0.2)]'}`}>
+                        <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Errors</p>
+                        <p className="text-lg font-bold mt-0.5">{stats.errors.toLocaleString()}</p>
+                      </div>
+                    </div>
+
+                    {/* Launch Buttons */}
+                    <div className="flex space-x-3 pt-2">
+                      <Button
+                        variant="contained"
+                        fullWidth
+                        onClick={handleStartCampaign}
+                        disabled={isSending || !subject.trim() || !body.trim()}
+                        startIcon={<Play className="h-4 w-4" />}
+                      >
+                        Launch Background Mailing
+                      </Button>
+
+                      <Tooltip title="Reset Campaign State">
+                        <Button
+                          variant="outlined"
+                          onClick={() => setResetDialogOpen(true)}
+                          sx={{ minWidth: '44px', width: '44px', p: 0 }}
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                        </Button>
+                      </Tooltip>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Console Log Stream */}
+                <div className="glass-panel rounded-2xl p-6">
+                  <h2 className="text-md font-display font-semibold mb-4 flex items-center space-x-2.5">
+                    <Terminal className="h-4.5 w-4.5" />
+                    <span>Real-time Stream Log</span>
+                  </h2>
+
+                  <div className={`w-full h-56 rounded-xl p-4 font-mono text-[11px] overflow-y-auto space-y-2 border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-900 text-zinc-100 border-black shadow-[0_0_6px_rgba(0,0,0,0.3)]'}`}>
+                    {stats.logs.length === 0 ? (
+                      <div className="opacity-40 italic h-full flex items-center justify-center text-center">
+                        No active logs. Launch campaign to stream status.
+                      </div>
+                    ) : (
+                      stats.logs.map((log) => (
+                        <div key={log.id} className="flex space-x-2">
+                          <span className="opacity-50 select-none">{log.timestamp}</span>
+                          <span>{log.message}</span>
+                        </div>
+                      ))
+                    )}
+                    <div ref={logsEndRef} />
+                  </div>
+                </div>
+              </section>
+            </div>
+          )}
+
+          {/* TAB 1: DATABASE & CONTACTS STAGING */}
+          {mainTab === 1 && (
+            <div className="space-y-8">
+
+              {/* Requirement 3: Staging Area Card */}
+              <div className="glass-panel rounded-2xl p-6 space-y-6">
+                <div className="flex justify-between items-center border-b pb-4 border-zinc-800">
+                  <div>
+                    <h2 className="text-lg font-display font-bold flex items-center space-x-2.5">
+                      <Layers className="h-5 w-5" />
+                      <span>Contact Staging Area</span>
+                    </h2>
+                    <p className="text-xs opacity-70 mt-1">
+                      Upload files or add emails manually. Items are parsed client-side and staged before deploying to PostgreSQL.
                     </p>
                   </div>
+
+                  {stagedEmails.length > 0 && (
+                    <Button
+                      variant="contained"
+                      onClick={handleDeployStagedEmails}
+                      disabled={isDeploying}
+                      startIcon={isDeploying ? <CircularProgress size={16} color="inherit" /> : <Send className="h-4 w-4" />}
+                      sx={{
+                        backgroundColor: isDark ? '#ffffff' : '#000000',
+                        color: isDark ? '#000000' : '#ffffff',
+                        fontWeight: 700,
+                        px: 3
+                      }}
+                    >
+                      {isDeploying ? 'Deploying...' : `Deploy ${stagedEmails.length} Staged Email(s)`}
+                    </Button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* File Upload Trigger */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider mb-2 font-mono opacity-80">
+                      1. Upload CSV / TXT File
+                    </label>
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all ${isDark ? 'border-zinc-800 hover:border-zinc-500 bg-zinc-950/50' : 'border-black hover:bg-zinc-50 bg-white shadow-[0_0_6px_rgba(0,0,0,0.2)]'
+                        }`}
+                    >
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleFileStaging}
+                        accept=".csv,.txt"
+                        className="hidden"
+                      />
+                      <Upload className="h-6 w-6 mx-auto mb-2 opacity-80" />
+                      <p className="text-xs font-semibold">Click to parse CSV or TXT file</p>
+                      <p className="text-[10px] opacity-60 mt-1 font-mono">Extracted emails will be added to Staging List below</p>
+                    </div>
+                  </div>
+
+                  {/* Manual Single Email Input */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider mb-2 font-mono opacity-80">
+                      2. Add Single Email Manually
+                    </label>
+                    <form onSubmit={handleAddManualEmail} className="flex space-x-2">
+                      <TextField
+                        fullWidth
+                        placeholder="user@example.com"
+                        value={manualEmail}
+                        onChange={(e) => setManualEmail(e.target.value)}
+                        size="small"
+                      />
+                      <Button
+                        type="submit"
+                        variant="outlined"
+                        startIcon={<Plus className="h-4 w-4" />}
+                        sx={{ whiteSpace: 'nowrap' }}
+                      >
+                        Add to Staging
+                      </Button>
+                    </form>
+                  </div>
+                </div>
+
+                {/* Staged Emails List Display */}
+                {stagedEmails.length > 0 ? (
+                  <div className="pt-2">
+                    <div className="flex justify-between items-center mb-3 font-mono">
+                      <span className="text-xs font-bold">
+                        Staged Queue ({stagedEmails.length} contacts pending deploy)
+                      </span>
+                      <Button
+                        size="small"
+                        color="error"
+                        onClick={handleClearStaged}
+                        startIcon={<Trash2 className="h-3.5 w-3.5" />}
+                        sx={{ fontSize: '0.75rem', p: '2px 8px' }}
+                      >
+                        Clear Staged List
+                      </Button>
+                    </div>
+
+                    <div className={`max-h-48 overflow-y-auto p-3 rounded-xl border flex flex-wrap gap-2 ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-slate-50 border-black shadow-[0_0_4px_rgba(0,0,0,0.2)]'}`}>
+                      {stagedEmails.map((email, idx) => (
+                        <Chip
+                          key={idx}
+                          label={email}
+                          onDelete={() => handleRemoveStagedEmail(email)}
+                          deleteIcon={<X className="h-3 w-3" />}
+                          size="small"
+                          variant="outlined"
+                          sx={{
+                            borderColor: isDark ? '#3f3f46' : '#000000',
+                            color: isDark ? '#ffffff' : '#000000',
+                            fontWeight: 500,
+                            fontSize: '0.75rem'
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
                 ) : (
-                  <div className="space-y-3">
-                    <div className="p-2.5 bg-[#05070c] rounded-lg w-fit mx-auto border border-red-950">
-                      <Upload className="h-5 w-5 text-red-400" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-slate-200">Click to upload CSV or TXT file</p>
-                      <p className="text-[10px] text-slate-500 mt-1.5 font-mono">
-                        CSV: First column for emails | TXT: One email per line
-                      </p>
-                    </div>
+                  <div className="text-center py-4 opacity-50 border border-dashed rounded-xl text-xs font-mono">
+                    No emails in staging queue. Select a file or enter an email above to stage.
                   </div>
                 )}
               </div>
 
-              {uploadError && (
-                <div className="mt-4 flex items-center space-x-2 bg-red-950/20 border border-red-900/20 text-red-400 p-3 rounded-lg text-xs font-mono">
-                  <AlertTriangle className="h-4 w-4 shrink-0" />
-                  <span>{uploadError}</span>
+              {/* Requirement 2: Database Contacts DataGrid Table */}
+              <div className="glass-panel rounded-2xl p-6 space-y-6">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b pb-4 border-zinc-800">
+                  <div>
+                    <h2 className="text-lg font-display font-bold flex items-center space-x-2.5">
+                      <Database className="h-5 w-5" />
+                      <span>PostgreSQL Database Contacts</span>
+                    </h2>
+                    <p className="text-xs opacity-70 mt-1">
+                      Real-time records stored in PostgreSQL database.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-4">
+                    {/* Quick Filter Switch for Non-Working Emails (status = 'error') */}
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={errorsOnlyFilter}
+                          onChange={(e) => setErrorsOnlyFilter(e.target.checked)}
+                          color="error"
+                        />
+                      }
+                      label={
+                        <span className="text-xs font-bold font-mono">
+                          Show Errors Only (status = 'error')
+                        </span>
+                      }
+                    />
+
+                    {/* Refresh Table Button */}
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={fetchDbContacts}
+                      disabled={isLoadingContacts}
+                      startIcon={<RefreshCw className={`h-3.5 w-3.5 ${isLoadingContacts ? 'animate-spin' : ''}`} />}
+                    >
+                      Refresh DB
+                    </Button>
+                  </div>
                 </div>
-              )}
-            </div>
 
-            {/* Campaign blueprint editor card */}
-            <div className="glass-panel rounded-2xl p-6 relative overflow-hidden group">
-              <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-red-500/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-
-              <div className="flex justify-between items-center mb-5">
-                <h2 className="text-md font-display font-semibold text-white flex items-center space-x-2.5">
-                  <FileText className="h-4.5 w-4.5 text-red-500" />
-                  <span>Broadcast Blueprint</span>
-                </h2>
-
-                <Box sx={{ borderBottom: 1, borderColor: 'rgba(239, 68, 68, 0.1)' }}>
-                  <Tabs
-                    value={activeTab}
-                    onChange={(e, val) => setActiveTab(val)}
-                    textColor="primary"
-                    indicatorColor="primary"
-                    sx={{ minHeight: '36px' }}
-                  >
-                    <Tab label="Edit HTML" icon={<Code className="h-3.5 w-3.5" />} iconPosition="start" sx={{ minHeight: '36px' }} />
-                    <Tab label="Live Render" icon={<Eye className="h-3.5 w-3.5" />} iconPosition="start" sx={{ minHeight: '36px' }} />
-                  </Tabs>
-                </Box>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">Subject Line</label>
+                {/* Search Bar */}
+                <div className="max-w-md">
                   <TextField
                     fullWidth
-                    variant="outlined"
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    disabled={isSending}
-                    placeholder="e.g. System alert: Database failover completed"
+                    size="small"
+                    placeholder="Filter by email address..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
                     slotProps={{
                       input: {
-                        style: { fontSize: '0.85rem' }
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <Filter className="h-4 w-4 opacity-50" />
+                          </InputAdornment>
+                        ),
                       }
                     }}
                   />
                 </div>
 
-                {activeTab === 0 ? (
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">HTML Body Template</label>
-                    <TextField
-                      fullWidth
-                      multiline
-                      rows={10}
-                      variant="outlined"
-                      value={body}
-                      onChange={(e) => setBody(e.target.value)}
-                      disabled={isSending}
-                      placeholder="<div><h1>Welcome!</h1><p>Html elements are allowed here.</p></div>"
-                      slotProps={{
-                        input: {
-                          style: {
-                            fontFamily: 'monospace',
-                            fontSize: '0.8rem',
-                            color: '#cbd5e1'
-                          }
-                        }
-                      }}
-                    />
-                  </div>
-                ) : (
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">HTML Visualized Preview</label>
-                    <div className="w-full min-h-[268px] max-h-[350px] overflow-y-auto bg-slate-950/60 border border-red-950/40 rounded-xl p-4 text-slate-300 text-sm">
-                      {body.trim() ? (
-                        <div dangerouslySetInnerHTML={{ __html: body }} />
-                      ) : (
-                        <div className="flex flex-col items-center justify-center min-h-[220px] text-slate-500 space-y-2">
-                          <Eye className="h-7 w-7 opacity-20" />
-                          <p className="text-xs font-mono">HTML preview is empty</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </section>
-
-          {/* Right panel: Active state control & Real-time Console (Lg: 5 cols) */}
-          <section className="lg:col-span-5 space-y-6">
-
-            {/* Campaign state card */}
-            <div className="glass-panel rounded-2xl p-6">
-
-              <div className="flex justify-between items-center mb-5">
-                <h2 className="text-md font-display font-semibold text-white flex items-center space-x-2.5">
-                  <Hourglass className="h-4.5 w-4.5 text-red-500" />
-                  <span>State Controller</span>
-                </h2>
-
-                <span className={`px-2 py-0.5 rounded text-[9px] uppercase font-bold tracking-widest border ${isSending ? 'bg-red-950/60 border-red-800 text-red-400 shadow-[0_0_6px_rgba(239,68,68,0.2)]' :
-                  isPaused ? 'bg-amber-950/60 border-amber-800 text-amber-400' :
-                    isCompleted ? 'bg-emerald-950/60 border-emerald-800 text-emerald-400' :
-                      'bg-slate-950/60 border-slate-800 text-slate-400'
-                  }`}>
-                  {stats.status}
-                </span>
-              </div>
-
-              {/* Progress and numbers */}
-              <div className="space-y-5">
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-400 mb-2 font-mono">
-                    <span>Broadcast Progress</span>
-                    <span className="text-red-400">{getProgressPercentage()}%</span>
-                  </div>
-
-                  <GlowingLinearProgress variant="determinate" value={getProgressPercentage()} />
-                </div>
-
-                {/* Grid stats */}
-                <div className="grid grid-cols-2 gap-4 font-mono">
-                  <div className="bg-[#05070c]/70 border border-red-950/40 p-3 rounded-xl text-center">
-                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider font-mono">Total Contacts</p>
-                    <p className="text-lg font-display font-semibold text-white mt-0.5 font-mono">
-                      {stats.total.toLocaleString()}
-                    </p>
-                  </div>
-
-                  <div className="bg-[#05070c]/70 border border-red-950/40 p-3 rounded-xl text-center relative overflow-hidden group">
-                    <div className="absolute bottom-0 left-0 w-full h-[1.5px] bg-red-600/40" />
-                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider font-mono">Sent</p>
-                    <p className="text-lg font-display font-semibold text-red-400 mt-0.5 font-mono">
-                      {stats.sent.toLocaleString()}
-                    </p>
-                  </div>
-
-                  <div className="bg-[#05070c]/70 border border-red-950/40 p-3 rounded-xl text-center">
-                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider font-mono">Remaining</p>
-                    <p className="text-lg font-display font-semibold text-slate-300 mt-0.5 font-mono">
-                      {stats.remaining.toLocaleString()}
-                    </p>
-                  </div>
-
-                  <div className="bg-[#05070c]/70 border border-red-950/40 p-3 rounded-xl text-center relative overflow-hidden">
-                    <div className="absolute bottom-0 left-0 w-full h-[1.5px] bg-red-900/60" />
-                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider font-mono">Errors</p>
-                    <p className="text-lg font-display font-semibold text-rose-550 mt-0.5 font-mono">
-                      {stats.errors.toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Control Action Buttons */}
-                <div className="flex space-x-3 mt-4 pt-1">
-                  {!isSending ? (
-                    <Button
-                      variant="contained"
-                      color="primary"
-                      fullWidth
-                      onClick={handleStart}
-                      disabled={stats.total === 0 || !subject.trim() || !body.trim()}
-                      startIcon={<Play className="h-4 w-4 fill-current" />}
-                      sx={{
-                        background: 'linear-gradient(90deg, #991b1b 0%, #ef4444 100%)',
-                        color: 'white',
-                        '&:hover': {
-                          background: 'linear-gradient(90deg, #b91c1c 0%, #f87171 100%)',
-                        },
-                      }}
-                    >
-                      <span>{isPaused ? 'Resume Sending' : 'Launch Campaign'}</span>
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="outlined"
-                      color="primary"
-                      fullWidth
-                      onClick={handlePause}
-                      startIcon={<Pause className="h-4 w-4 fill-current" />}
-                    >
-                      <span>Pause Campaign</span>
-                    </Button>
-                  )}
-
-                  <Tooltip title="Clear and Reset Campaign State" arrow>
-                    <Button
-                      variant="outlined"
-                      color="error"
-                      sx={{ minWidth: '48px', width: '48px', p: 0, borderColor: 'rgba(239, 68, 68, 0.2)' }}
-                      onClick={() => setResetDialogOpen(true)}
-                    >
-                      <RotateCcw className="h-4 w-4" />
-                    </Button>
-                  </Tooltip>
+                {/* DataGrid Table */}
+                <div style={{ height: 420, width: '100%' }}>
+                  <DataGrid
+                    rows={filteredContacts}
+                    columns={columns}
+                    loading={isLoadingContacts}
+                    pageSizeOptions={[10, 25, 50, 100]}
+                    initialState={{
+                      pagination: { paginationModel: { pageSize: 10 } },
+                    }}
+                    disableRowSelectionOnClick
+                    sx={{
+                      '& .MuiDataGrid-cell': {
+                        fontSize: '0.85rem',
+                      }
+                    }}
+                  />
                 </div>
               </div>
+
             </div>
-
-            {/* Real-time output stream */}
-            <div className="glass-panel rounded-2xl p-6">
-              <h2 className="text-md font-display font-semibold text-white mb-4 flex items-center space-x-2.5">
-                <Terminal className="h-4.5 w-4.5 text-red-500" />
-                <span>Transmission Log Console</span>
-              </h2>
-
-              <div className="w-full h-60 bg-slate-950/80 border border-red-950/30 rounded-xl p-4 font-mono text-[11px] overflow-y-auto space-y-2 select-text">
-                {stats.logs.length === 0 ? (
-                  <div className="text-slate-655 italic h-full flex items-center justify-center text-center">
-                    Terminal offline. Launch campaign to stream output packets.
-                  </div>
-                ) : (
-                  stats.logs.map((log) => {
-                    let textClass = 'text-slate-400';
-                    if (log.message.includes('[Batch Success]')) textClass = 'text-emerald-400';
-                    if (log.message.includes('[Sending]')) textClass = 'text-red-400';
-                    if (log.message.includes('[Error]') || log.message.includes('[Batch Error]')) textClass = 'text-red-655 font-bold';
-                    if (log.message.includes('[System]')) textClass = 'text-amber-500 font-medium';
-
-                    return (
-                      <div key={log.id} className="flex space-x-2 leading-relaxed">
-                        <span className="text-red-950 select-none">{log.timestamp}</span>
-                        <span className={textClass}>{log.message}</span>
-                      </div>
-                    );
-                  })
-                )}
-                <div ref={logsEndRef} />
-              </div>
-
-              <div className="flex items-center justify-between mt-3 text-[9px] text-slate-500 font-mono">
-                <span className="flex items-center space-x-1.5">
-                  <ShieldCheck className="h-3.5 w-3.5 text-red-500/80" />
-                  <span>Direct State Engine Active</span>
-                </span>
-                <span>Buffer: 1k contacts / batch</span>
-              </div>
-            </div>
-          </section>
+          )}
 
         </main>
 
-        {/* Custom MUI Confirm Dialog for Campaign Reset */}
-        <Dialog
-          open={resetDialogOpen}
-          onClose={() => setResetDialogOpen(false)}
-          aria-labelledby="reset-dialog-title"
-          aria-describedby="reset-dialog-description"
-        >
-          <DialogTitle id="reset-dialog-title" sx={{ fontFamily: "'Outfit', sans-serif", fontWeight: 700, color: 'white' }}>
-            Confirm System Reset
-          </DialogTitle>
+        {/* Reset Dialog */}
+        <Dialog open={resetDialogOpen} onClose={() => setResetDialogOpen(false)}>
+          <DialogTitle sx={{ fontWeight: 700 }}>Confirm System Reset</DialogTitle>
           <DialogContent>
-            <DialogContentText id="reset-dialog-description" sx={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-              Are you sure you want to completely clear the campaign status? This action will purge all statistics, uploaded files, and transmission histories permanently.
+            <DialogContentText sx={{ fontSize: '0.85rem' }}>
+              Are you sure you want to reset the campaign progress?
             </DialogContentText>
           </DialogContent>
-          <DialogActions sx={{ p: 2.5, pt: 0 }}>
-            <Button onClick={() => setResetDialogOpen(false)} sx={{ color: '#94a3b8' }}>
-              Cancel
-            </Button>
-            <Button onClick={handleResetConfirm} variant="contained" color="error" autoFocus>
-              Purge System
-            </Button>
+          <DialogActions sx={{ p: 2 }}>
+            <Button onClick={() => setResetDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleResetConfirm} color="error" variant="contained">Reset</Button>
           </DialogActions>
         </Dialog>
 
-        {/* Elegant Snackbar Alert system */}
+        {/* Toast Snackbar */}
         <Snackbar
           open={toast.open}
           autoHideDuration={4000}
@@ -689,14 +961,7 @@ function App() {
             onClose={() => setToast({ ...toast, open: false })}
             severity={toast.severity}
             variant="filled"
-            sx={{
-              borderRadius: '12px',
-              fontFamily: "'Plus Jakarta Sans', sans-serif",
-              fontSize: '0.8rem',
-              boxShadow: '0 4px 15px rgba(0, 0, 0, 0.4)',
-              '&.MuiAlert-filledSuccess': { backgroundColor: '#10b981' },
-              '&.MuiAlert-filledError': { backgroundColor: '#ef4444' },
-            }}
+            sx={{ borderRadius: '8px', fontSize: '0.8rem', fontWeight: 600 }}
           >
             {toast.message}
           </Alert>

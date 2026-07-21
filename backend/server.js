@@ -1,15 +1,20 @@
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
-import csvParser from 'csv-parser';
-import axios from 'axios';
-import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+import sgMail from '@sendgrid/mail';
+import { query } from './db.js';
 
 dotenv.config();
+
+// Configure SendGrid API Key
+if (process.env.SENDGRID_API_KEY) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,471 +22,282 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Ensure uploads folder exists
+// Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir);
+  fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Multer Config
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (ext === '.txt') {
-      cb(null, 'contacts.txt');
-    } else {
-      cb(null, 'contacts.csv');
-    }
-  }
-});
-const upload = multer({
-  storage,
-  fileFilter: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (ext === '.csv' || ext === '.txt') {
-      cb(null, true);
-    } else {
-      cb(new Error('Only .csv and .txt files are allowed'), false);
-    }
-  }
-});
+// Multer file upload setup
+const upload = multer({ dest: uploadsDir });
 
-// State Variables
-let status = 'idle'; // 'idle', 'sending', 'paused', 'completed'
-let totalContacts = 0;
-let sentCount = 0;
-let errorCount = 0;
-let remainingCount = 0;
-let recentLogs = [];
-let sentEmails = new Set();
-let emailBuffer = [];
-let isProcessingBatch = false;
-let activeStream = null;
-let activeParser = null;
-let currentSubject = '';
-let currentBody = '';
+// Global state variable safeguard
+let isMailing = false;
 
-// Load sent emails cache from sent.txt
-async function loadSentEmails() {
-  sentEmails.clear();
-  const sentFilePath = path.join(__dirname, 'sent.txt');
-  if (!fs.existsSync(sentFilePath)) {
-    sentCount = 0;
-    return;
-  }
-
-  const fileStream = fs.createReadStream(sentFilePath);
-  const rl = readline.createInterface({
-    input: fileStream,
-    crlfDelay: Infinity
-  });
-
-  for await (const line of rl) {
-    const email = line.trim();
-    if (email) {
-      sentEmails.add(email);
-    }
-  }
-  sentCount = sentEmails.size;
-  console.log(`Initialized Set: Loaded ${sentEmails.size} sent emails.`);
-}
-
-// Count contacts in uploaded CSV file
-async function countCsvContacts(filePath) {
-  return new Promise((resolve, reject) => {
-    let count = 0;
-    fs.createReadStream(filePath)
-      .pipe(csvParser())
-      .on('data', (row) => {
-        const email = row.email || row.Email || row[Object.keys(row)[0]];
-        if (email && email.includes('@')) {
-          count++;
-        }
-      })
-      .on('end', () => {
-        resolve(count);
-      })
-      .on('error', (err) => {
-        reject(err);
-      });
-  });
-}
-
-// Convert TXT file (one email per line) to CSV format
-async function convertTxtToCsv(txtFilePath, csvFilePath) {
-  const writeStream = fs.createWriteStream(csvFilePath);
-  const readStream = fs.createReadStream(txtFilePath);
-  const rl = readline.createInterface({
-    input: readStream,
-    crlfDelay: Infinity
-  });
-
-  // Write header first
-  await new Promise((resolve, reject) => {
-    writeStream.write('email\n', 'utf8', (err) => {
-      if (err) reject(err);
-      else resolve();
-    });
-  });
-
-  for await (const line of rl) {
-    const cleanEmail = line.trim();
-    if (cleanEmail) {
-      const canWrite = writeStream.write(`${cleanEmail}\n`, 'utf8');
-      if (!canWrite) {
-        await new Promise(resolve => writeStream.once('drain', resolve));
-      }
-    }
-  }
-
-  await new Promise((resolve) => {
-    writeStream.end(resolve);
-  });
-}
-
-function addLog(message) {
-  const logEntry = {
-    id: Date.now() + Math.random().toString(36).substr(2, 9),
-    timestamp: new Date().toLocaleTimeString(),
-    message
-  };
-  recentLogs.unshift(logEntry);
-  if (recentLogs.length > 100) {
-    recentLogs.pop();
-  }
-  broadcastStatus();
-}
-
-// Server Sent Events (SSE) state broadcasting
-let clients = [];
-function broadcastStatus() {
-  const stats = {
-    status,
-    total: totalContacts,
-    sent: sentCount,
-    remaining: remainingCount,
-    errors: errorCount,
-    logs: recentLogs
-  };
-  const data = `data: ${JSON.stringify(stats)}\n\n`;
-  clients.forEach(client => client.write(data));
-}
-
-// Batch sending function using Axios
-async function sendBatch(emails, subject, body) {
-  const apiUrl = process.env.EMAIL_API_URL || `http://localhost:${PORT}/api/mock-send`;
-  const apiKey = process.env.EMAIL_API_KEY || 'mock-key';
-
+/**
+ * GET /contacts
+ * Returns all contacts from PostgreSQL database.
+ */
+app.get('/contacts', async (req, res) => {
   try {
-    const response = await axios.post(apiUrl, {
-      emails,
-      subject,
-      body
-    }, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      }
-    });
-
-    const result = response.data;
-    const successfulEmails = result.successfulEmails || emails;
-    const errorsThisBatch = result.errorCount || 0;
-
-    if (successfulEmails.length > 0) {
-      // Append to file
-      const sentFilePath = path.join(__dirname, 'sent.txt');
-      await fs.promises.appendFile(sentFilePath, successfulEmails.join('\n') + '\n');
-      
-      // Update local set
-      successfulEmails.forEach(email => sentEmails.add(email));
-    }
-
-    sentCount = sentEmails.size;
-    errorCount += errorsThisBatch;
-    remainingCount = Math.max(0, totalContacts - sentCount);
-
-    addLog(`[Batch Success] Dispatched ${successfulEmails.length} emails. Failures: ${errorsThisBatch}`);
-  } catch (error) {
-    console.error('Batch delivery error:', error.message);
-    errorCount += emails.length;
-    remainingCount = Math.max(0, totalContacts - sentCount);
-    addLog(`[Batch Error] Network/API fail for ${emails.length} addresses. ${error.message}`);
-  }
-}
-
-// Core streaming engine
-function runEmailSender() {
-  const csvPath = path.join(uploadsDir, 'contacts.csv');
-  if (!fs.existsSync(csvPath)) {
-    status = 'idle';
-    addLog('[Error] contacts.csv not found. Please upload first.');
-    return;
-  }
-
-  addLog('[System] Initializing stream parser...');
-  
-  activeStream = fs.createReadStream(csvPath);
-  activeParser = activeStream.pipe(csvParser());
-
-  activeParser.on('data', (row) => {
-    const email = row.email || row.Email || row[Object.keys(row)[0]];
-    if (!email || !email.includes('@')) return;
-
-    const cleanEmail = email.trim();
-    if (sentEmails.has(cleanEmail)) return;
-
-    emailBuffer.push(cleanEmail);
-
-    if (emailBuffer.length >= 1000 && !isProcessingBatch) {
-      isProcessingBatch = true;
-      
-      // Pause streaming immediately
-      activeParser.pause();
-      activeStream.pause();
-
-      processActiveBatch();
-    }
-  });
-
-  activeParser.on('end', async () => {
-    // Process remaining
-    if (emailBuffer.length > 0 && status === 'sending') {
-      isProcessingBatch = true;
-      const batch = [...emailBuffer];
-      emailBuffer = [];
-      await sendBatch(batch, currentSubject, currentBody);
-      isProcessingBatch = false;
-    }
-    
-    if (status === 'sending') {
-      status = 'completed';
-      addLog('[System] Send process completed.');
-      broadcastStatus();
-    }
-  });
-
-  activeParser.on('error', (err) => {
-    addLog(`[Error] CSV parsing error: ${err.message}`);
-    status = 'idle';
-    broadcastStatus();
-  });
-}
-
-async function processActiveBatch() {
-  if (status !== 'sending') {
-    isProcessingBatch = false;
-    return;
-  }
-
-  const batch = emailBuffer.slice(0, 1000);
-  emailBuffer = emailBuffer.slice(1000);
-
-  addLog(`[Sending] Dispatching batch of ${batch.length} emails...`);
-  await sendBatch(batch, currentSubject, currentBody);
-
-  // Rate Limiting Pause
-  await new Promise(resolve => setTimeout(resolve, 1000));
-
-  isProcessingBatch = false;
-
-  if (status === 'paused') {
-    addLog('[System] Stream safely paused. Current batch finished.');
-    broadcastStatus();
-  } else if (status === 'sending') {
-    // Resume Stream
-    activeParser.resume();
-    activeStream.resume();
-
-    // Check if buffer has accumulated overflow during pause
-    if (emailBuffer.length >= 1000) {
-      isProcessingBatch = true;
-      activeParser.pause();
-      activeStream.pause();
-      processActiveBatch();
-    }
-  }
-}
-
-// API Routes
-
-// POST /upload - upload contacts.csv or contacts.txt
-app.post('/upload', (req, res, next) => {
-  upload.single('file')(req, res, (err) => {
-    if (err) {
-      addLog(`[System Error] File upload failed: ${err.message}`);
-      return res.status(400).json({ success: false, error: err.message });
-    }
-    next();
-  });
-}, async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, error: 'No file uploaded' });
-    }
-
-    const ext = path.extname(req.file.originalname).toLowerCase();
-    const csvPath = path.join(uploadsDir, 'contacts.csv');
-
-    if (ext === '.txt') {
-      addLog('[System] TXT file detected. Converting to CSV...');
-      await convertTxtToCsv(req.file.path, csvPath);
-      // Clean up temporary TXT file
-      try {
-        await fs.promises.unlink(req.file.path);
-      } catch (unlinkErr) {
-        console.error('Failed to unlink temporary txt file:', unlinkErr);
-      }
-      addLog('[System] Conversion completed. CSV generated.');
-    }
-
-    addLog('[System] Parsing and verifying contact counts...');
-    const count = await countCsvContacts(csvPath);
-    totalContacts = count;
-    remainingCount = Math.max(0, totalContacts - sentCount);
-
-    addLog(`[System] Contacts successfully loaded. Found ${totalContacts} valid contact emails.`);
-    res.json({ success: true, count });
-  } catch (error) {
-    addLog(`[System Error] Upload process failed: ${error.message}`);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// POST /start - starts the streaming and mailing process
-app.post('/start', (req, res) => {
-  const { subject, body } = req.body;
-  if (!subject || !body) {
-    return res.status(400).json({ success: false, error: 'Subject and Body are required' });
-  }
-
-  if (status === 'sending') {
-    return res.status(400).json({ success: false, error: 'Process is already running' });
-  }
-
-  const csvPath = path.join(uploadsDir, 'contacts.csv');
-  if (!fs.existsSync(csvPath)) {
-    return res.status(400).json({ success: false, error: 'Please upload contacts.csv first' });
-  }
-
-  currentSubject = subject;
-  currentBody = body;
-  status = 'sending';
-  addLog('[System] Start signal received. Mailing initiated...');
-  
-  runEmailSender();
-  res.json({ success: true, status });
-});
-
-// POST /pause - pauses the mailing
-app.post('/pause', (req, res) => {
-  if (status !== 'sending') {
-    return res.status(400).json({ success: false, error: 'Sender is not running' });
-  }
-
-  status = 'paused';
-  addLog('[System] Pause signal received. Completing current batch...');
-  res.json({ success: true, status });
-});
-
-// POST /reset - clears sent progress
-app.post('/reset', async (req, res) => {
-  status = 'idle';
-  totalContacts = 0;
-  sentCount = 0;
-  errorCount = 0;
-  remainingCount = 0;
-  recentLogs = [];
-  emailBuffer = [];
-  sentEmails.clear();
-
-  const sentFilePath = path.join(__dirname, 'sent.txt');
-  if (fs.existsSync(sentFilePath)) {
-    await fs.promises.unlink(sentFilePath);
-  }
-  
-  const csvPath = path.join(uploadsDir, 'contacts.csv');
-  if (fs.existsSync(csvPath)) {
-    await fs.promises.unlink(csvPath);
-  }
-  const txtPath = path.join(uploadsDir, 'contacts.txt');
-  if (fs.existsSync(txtPath)) {
-    await fs.promises.unlink(txtPath);
-  }
-
-  addLog('[System] Sent progress and upload cache completely reset.');
-  res.json({ success: true });
-});
-
-// GET /status - returns statistics for the frontend
-app.get('/status', (req, res) => {
-  res.json({
-    status,
-    total: totalContacts,
-    sent: sentCount,
-    remaining: remainingCount,
-    errors: errorCount
-  });
-});
-
-// GET /status/events - SSE endpoint
-app.get('/status/events', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
-
-  // Send initial data immediately
-  res.write(`data: ${JSON.stringify({
-    status,
-    total: totalContacts,
-    sent: sentCount,
-    remaining: remainingCount,
-    errors: errorCount,
-    logs: recentLogs
-  })}\n\n`);
-
-  clients.push(res);
-
-  req.on('close', () => {
-    clients = clients.filter(client => client !== res);
-  });
-});
-
-// POST /api/mock-send - internal mock endpoint
-app.post('/api/mock-send', (req, res) => {
-  const { emails } = req.body;
-  
-  setTimeout(() => {
-    const successfulEmails = [];
-    let errorCountThisBatch = 0;
-
-    emails.forEach(email => {
-      // Simulate minor failure rate (e.g. 0.3%)
-      if (Math.random() < 0.003) {
-        errorCountThisBatch++;
-      } else {
-        successfulEmails.push(email);
-      }
-    });
-
-    res.json({
+    const { rows } = await query('SELECT id, email, status FROM contacts ORDER BY id DESC');
+    return res.status(200).json({
       success: true,
-      successfulEmails,
-      errorCount: errorCountThisBatch
+      contacts: rows
     });
-  }, 100);
+  } catch (error) {
+    console.error('Error fetching contacts:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch contacts'
+    });
+  }
 });
 
-// Initialize on startup
-loadSentEmails().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
+/**
+ * 1. Upload & Deploy Contacts (POST /upload & POST /deploy-contacts)
+ * Accepts either:
+ *  - JSON body { emails: ["a@b.com", ...] }
+ *  - File upload via multer (.txt or .csv)
+ * Inserts emails into contacts table using INSERT ... ON CONFLICT (email) DO NOTHING.
+ * Returns 200 OK with count of inserted contacts.
+ */
+const handleDeployContacts = async (emails, res) => {
+  try {
+    if (!Array.isArray(emails) || emails.length === 0) {
+      return res.status(400).json({ success: false, error: 'No valid emails provided' });
+    }
+
+    let insertedCount = 0;
+    for (const rawEmail of emails) {
+      const email = typeof rawEmail === 'string' ? rawEmail.trim() : '';
+      if (!email || !email.includes('@')) continue;
+
+      const dbRes = await query(
+        'INSERT INTO contacts (email) VALUES ($1) ON CONFLICT (email) DO NOTHING',
+        [email]
+      );
+      if (dbRes && dbRes.rowCount > 0) {
+        insertedCount += dbRes.rowCount;
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Contacts deployed successfully',
+      insertedCount,
+      count: insertedCount
+    });
+  } catch (error) {
+    console.error('Error deploying contacts:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to insert contacts into database'
+    });
+  }
+};
+
+app.post('/deploy-contacts', async (req, res) => {
+  const { emails } = req.body;
+  return handleDeployContacts(emails, res);
+});
+
+app.post('/upload', upload.single('file'), async (req, res) => {
+  try {
+    // If request contains JSON emails array
+    if (req.body && req.body.emails) {
+      let emailsList = req.body.emails;
+      if (typeof emailsList === 'string') {
+        try {
+          emailsList = JSON.parse(emailsList);
+        } catch {
+          emailsList = [emailsList];
+        }
+      }
+      return handleDeployContacts(emailsList, res);
+    }
+
+    // Otherwise handle file upload
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No file or emails provided' });
+    }
+
+    const filePath = req.file.path;
+    const fileStream = fs.createReadStream(filePath);
+    const rl = readline.createInterface({
+      input: fileStream,
+      crlfDelay: Infinity
+    });
+
+    const emails = [];
+
+    for await (const line of rl) {
+      let trimmed = line.trim();
+      if (!trimmed) continue;
+      if (trimmed.toLowerCase() === 'email') continue;
+
+      if (trimmed.includes(',')) {
+        const parts = trimmed.split(',');
+        for (const part of parts) {
+          const cleanPart = part.trim().replace(/^["']|["']$/g, '');
+          if (cleanPart.includes('@')) {
+            trimmed = cleanPart;
+            break;
+          }
+        }
+      }
+
+      trimmed = trimmed.replace(/^["']|["']$/g, '');
+      if (trimmed && trimmed.includes('@')) {
+        emails.push(trimmed);
+      }
+    }
+
+    fs.unlink(filePath, (err) => {
+      if (err) console.error('Failed to delete temporary upload file:', err);
+    });
+
+    return handleDeployContacts(emails, res);
+  } catch (error) {
+    console.error('Error during POST /upload:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Error processing contact upload'
+    });
+  }
+});
+
+/**
+ * 3. Background Logic processMailing()
+ * Fetches pending contacts from DB in batches of 50.
+ * Iterates using a for...of loop, sends email via SendGrid, updates DB status to 'sent' or 'error'.
+ * Includes a mandatory 1-second delay between emails to avoid SendGrid rate limits.
+ * Recursively calls itself until no pending contacts remain.
+ */
+async function processMailing() {
+  try {
+    const { rows } = await query(
+      "SELECT email FROM contacts WHERE status = 'pending' LIMIT 50"
+    );
+
+    if (!rows || rows.length === 0) {
+      console.log('Mailing complete. No pending contacts found.');
+      isMailing = false;
+      return;
+    }
+
+    for (const row of rows) {
+      const email = row.email;
+
+      try {
+        const msg = {
+          to: email,
+          from: process.env.FROM_EMAIL || 'no-reply@example.com',
+          subject: process.env.EMAIL_SUBJECT || 'Mass Email Notification',
+          text: process.env.EMAIL_BODY || 'Hello from our service!',
+          html: process.env.EMAIL_HTML || '<p>Hello from our service!</p>'
+        };
+
+        await sgMail.send(msg);
+
+        await query(
+          "UPDATE contacts SET status = 'sent' WHERE email = $1",
+          [email]
+        );
+      } catch (err) {
+        console.error(`SendGrid error for ${email}:`, err.message || err);
+
+        await query(
+          "UPDATE contacts SET status = 'error' WHERE email = $1",
+          [email]
+        );
+      }
+
+      // CRITICAL: 1-second delay between sending each email
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+
+    // Recursively process next batch
+    await processMailing();
+  } catch (error) {
+    console.error('Error in processMailing background worker:', error);
+    isMailing = false;
+  }
+}
+
+/**
+ * 2. Start Background Mailing (POST /start-mailing)
+ */
+app.post('/start-mailing', (req, res) => {
+  try {
+    if (isMailing) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mailing is already in progress'
+      });
+    }
+
+    isMailing = true;
+
+    res.status(200).json({ message: 'Mailing started in background' });
+
+    processMailing().catch((err) => {
+      console.error('Unhandled error in processMailing:', err);
+      isMailing = false;
+    });
+  } catch (error) {
+    console.error('Error during POST /start-mailing:', error);
+    isMailing = false;
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+});
+
+/**
+ * 4. Track Progress (GET /progress)
+ */
+app.get('/progress', async (req, res) => {
+  try {
+    const { rows } = await query(
+      'SELECT status, COUNT(*) as count FROM contacts GROUP BY status'
+    );
+
+    const counts = {
+      pending: 0,
+      sent: 0,
+      error: 0
+    };
+
+    if (rows && rows.length > 0) {
+      rows.forEach((row) => {
+        const countNum = parseInt(row.count, 10) || 0;
+        counts[row.status] = countNum;
+      });
+    }
+
+    return res.status(200).json({
+      isMailing,
+      pending: counts.pending,
+      sent: counts.sent,
+      error: counts.error,
+      counts
+    });
+  } catch (error) {
+    console.error('Error during GET /progress:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to retrieve progress'
+    });
+  }
+});
+
+// Start listening
+app.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
 });

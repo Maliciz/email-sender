@@ -9,6 +9,7 @@
     "dev": "nodemon server.js"
   },
   "dependencies": {
+    "@sendgrid/mail": "^8.1.6",
     "axios": "^1.7.2",
     "cors": "^2.8.5",
     "csv-parser": "^3.0.0",
