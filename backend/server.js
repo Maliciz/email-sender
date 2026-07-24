@@ -28,6 +28,11 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// Root health check endpoint
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'Email Sender API is running' });
+});
+
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {

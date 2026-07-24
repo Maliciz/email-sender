@@ -35,7 +35,7 @@ import {
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 
-const BACKEND_URL = 'http://localhost:5000';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 
 // Glowing Progress Bar
 const GlowingLinearProgress = styled(LinearProgress)(({ theme }) => ({
