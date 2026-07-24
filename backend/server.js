@@ -33,6 +33,28 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Email Sender API is running' });
 });
 
+// Diagnostic Database Endpoint
+app.get('/test-db', async (req, res) => {
+  try {
+    const dbRes = await query('SELECT NOW() as time, current_database() as db');
+    const contactsRes = await query('SELECT count(*) FROM contacts');
+    res.json({
+      status: 'ok',
+      connected: true,
+      database: dbRes.rows[0].db,
+      time: dbRes.rows[0].time,
+      contactsCount: Number(contactsRes.rows[0].count)
+    });
+  } catch (err) {
+    res.status(500).json({
+      status: 'error',
+      connected: false,
+      error: err.message,
+      code: err.code
+    });
+  }
+});
+
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
