@@ -386,6 +386,72 @@ app.post('/deploy-contacts', async (req, res) => {
 });
 
 /**
+ * POST /contacts/reset-sent - Reset all 'sent' contacts back to 'pending'
+ */
+app.post('/contacts/reset-sent', async (req, res) => {
+  try {
+    const dbRes = await query(
+      "UPDATE contacts SET status = 'pending' WHERE status = 'sent'"
+    );
+    const updatedCount = dbRes.rowCount || 0;
+    addLog(`[System] Reset ${updatedCount} 'sent' contacts back to 'pending'.`);
+    broadcastSSEStatus();
+    return res.status(200).json({
+      success: true,
+      message: `Reset ${updatedCount} sent contacts to pending.`,
+      updatedCount
+    });
+  } catch (error) {
+    console.error('Error resetting sent contacts:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /contacts/delete-errors - Delete all contacts with status 'error'
+ */
+app.post('/contacts/delete-errors', async (req, res) => {
+  try {
+    const dbRes = await query(
+      "DELETE FROM contacts WHERE status = 'error'"
+    );
+    const deletedCount = dbRes.rowCount || 0;
+    addLog(`[System] Deleted ${deletedCount} 'error' contacts from database.`);
+    broadcastSSEStatus();
+    return res.status(200).json({
+      success: true,
+      message: `Deleted ${deletedCount} error contacts.`,
+      deletedCount
+    });
+  } catch (error) {
+    console.error('Error deleting error contacts:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /contacts/reset-all - Reset ALL non-pending contacts back to 'pending'
+ */
+app.post('/contacts/reset-all', async (req, res) => {
+  try {
+    const dbRes = await query(
+      "UPDATE contacts SET status = 'pending' WHERE status != 'pending'"
+    );
+    const updatedCount = dbRes.rowCount || 0;
+    addLog(`[System] Reset all ${updatedCount} contacts back to 'pending'.`);
+    broadcastSSEStatus();
+    return res.status(200).json({
+      success: true,
+      message: `Reset ${updatedCount} contacts to pending.`,
+      updatedCount
+    });
+  } catch (error) {
+    console.error('Error resetting all contacts:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * 2. Upload Contacts (POST /upload)
  * Accepts file upload (.txt or .csv) via Multer or raw emails array,
  * extracts email addresses, trims spaces, ignores empty lines,
@@ -515,14 +581,33 @@ async function processMailing(subject, html, senderEmail) {
  * Accepts subject and html/body from request body, checks lock,
  * responds instantly with 200 OK, and calls processMailing without blocking.
  */
-app.post('/start-mailing', (req, res) => {
+app.post('/start-mailing', async (req, res) => {
   try {
     const { subject, html, body, senderEmail } = req.body;
 
     if (isMailing) {
       return res.status(400).json({
         success: false,
-        message: 'Mailing is already in progress'
+        error: 'Mailing is already in progress'
+      });
+    }
+
+    // Check pending contacts count in DB
+    const pendingRes = await query("SELECT count(*) FROM contacts WHERE status = 'pending'");
+    const pendingCount = parseInt(pendingRes.rows[0].count, 10) || 0;
+
+    if (pendingCount === 0) {
+      const sentRes = await query("SELECT count(*) FROM contacts WHERE status = 'sent'");
+      const sentCount = parseInt(sentRes.rows[0].count, 10) || 0;
+      if (sentCount > 0) {
+        return res.status(400).json({
+          success: false,
+          error: `No pending contacts! (All ${sentCount} emails marked as 'sent'). Click 'Reset Sent → Pending' to re-run campaign.`
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        error: 'No contacts in database. Please upload contacts first.'
       });
     }
 
@@ -533,12 +618,14 @@ app.post('/start-mailing', (req, res) => {
     }
 
     isMailing = true;
-    addLog(`[System] Launching campaign using sender: ${currentSenderEmail}...`);
+    addLog(`[System] Launching campaign for ${pendingCount} pending contacts using sender: ${currentSenderEmail}...`);
 
-    // Respond instantly
-    res.status(200).json({ message: 'Mailing started in background' });
+    res.status(200).json({
+      success: true,
+      message: `Mailing started for ${pendingCount} pending contacts`,
+      pendingCount
+    });
 
-    // Fire and forget background worker
     processMailing(campaignSubject, campaignHtml, currentSenderEmail).catch((err) => {
       console.error('Unhandled processMailing error:', err);
       isMailing = false;

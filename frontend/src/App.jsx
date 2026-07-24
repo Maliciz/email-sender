@@ -537,9 +537,66 @@ function App() {
     }
   };
 
+  // Reset 'sent' contacts to 'pending'
+  const handleResetSentContacts = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/contacts/reset-sent`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        showToast(data.message || 'Reset sent contacts to pending.', 'success');
+        fetchDbContacts();
+      } else {
+        throw new Error(data.error || 'Failed to reset sent contacts');
+      }
+    } catch (err) {
+      showToast(`Reset error: ${err.message}`, 'error');
+    }
+  };
+
+  // Delete all 'error' contacts
+  const handleDeleteErrorContacts = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/contacts/delete-errors`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        showToast(data.message || 'Deleted error contacts.', 'success');
+        fetchDbContacts();
+      } else {
+        throw new Error(data.error || 'Failed to delete error contacts');
+      }
+    } catch (err) {
+      showToast(`Delete error: ${err.message}`, 'error');
+    }
+  };
+
+  // Reset ALL non-pending contacts back to 'pending'
+  const handleResetAllContacts = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/contacts/reset-all`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        showToast(data.message || 'Reset all contacts to pending.', 'success');
+        fetchDbContacts();
+      } else {
+        throw new Error(data.error || 'Failed to reset contacts');
+      }
+    } catch (err) {
+      showToast(`Reset error: ${err.message}`, 'error');
+    }
+  };
+
   const handleResetConfirm = async () => {
     setResetDialogOpen(false);
-    showToast('Reset action executed.', 'info');
+    await handleResetSentContacts();
   };
 
   const getProgressPercentage = () => {
@@ -885,7 +942,7 @@ function App() {
                       </div>
                     </div>
 
-                    <div className="flex space-x-3 pt-2">
+                    <div className="flex flex-col sm:flex-row gap-2 pt-2">
                       <Button
                         variant="contained"
                         fullWidth
@@ -896,15 +953,25 @@ function App() {
                         Launch Mailing
                       </Button>
 
-                      <Tooltip title="Reset Campaign State">
-                        <Button
-                          variant="outlined"
-                          onClick={() => setResetDialogOpen(true)}
-                          sx={{ minWidth: '44px', width: '44px', p: 0 }}
-                        >
-                          <RotateCcw className="h-4 w-4" />
-                        </Button>
-                      </Tooltip>
+                      <Button
+                        variant="outlined"
+                        color="warning"
+                        onClick={handleResetSentContacts}
+                        startIcon={<RotateCcw className="h-4 w-4" />}
+                        sx={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+                      >
+                        Reset Sent → Pending
+                      </Button>
+
+                      <Button
+                        variant="outlined"
+                        color="error"
+                        onClick={handleDeleteErrorContacts}
+                        startIcon={<Trash2 className="h-4 w-4" />}
+                        sx={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+                      >
+                        Delete Errors
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -1074,7 +1141,27 @@ function App() {
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-between md:justify-end">
+                  <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-between md:justify-end">
+                    <Button
+                      variant="outlined"
+                      color="warning"
+                      size="small"
+                      onClick={handleResetSentContacts}
+                      startIcon={<RotateCcw className="h-3.5 w-3.5" />}
+                    >
+                      Reset Sent → Pending
+                    </Button>
+
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      size="small"
+                      onClick={handleDeleteErrorContacts}
+                      startIcon={<Trash2 className="h-3.5 w-3.5" />}
+                    >
+                      Delete Errors
+                    </Button>
+
                     <FormControlLabel
                       control={
                         <Switch
