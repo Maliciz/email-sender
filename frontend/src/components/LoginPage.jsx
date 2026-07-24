@@ -10,7 +10,7 @@ export default function LoginPage({
   onLoginSuccess,
   isDark = true,
   setThemeMode,
-  backendUrl = 'http://localhost:5000'
+  backendUrl = 'https://email-sender-hbvi.onrender.com/'
 }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
