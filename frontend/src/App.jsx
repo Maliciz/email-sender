@@ -36,7 +36,8 @@ import {
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+const RAW_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://email-sender-hbvi.onrender.com';
+const BACKEND_URL = RAW_BACKEND_URL.replace(/\/+$/, '');
 
 // Glowing Progress Bar
 const GlowingLinearProgress = styled(LinearProgress)(({ theme }) => ({
@@ -320,12 +321,7 @@ function App() {
     }
   }, [authToken]);
 
-  // Auto-scroll logs
-  useEffect(() => {
-    if (logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [stats.logs]);
+
 
   // Add New Sender Domain
   const handleAddSender = async (e) => {

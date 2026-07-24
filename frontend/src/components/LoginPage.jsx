@@ -29,7 +29,8 @@ export default function LoginPage({
     setErrorMsg('');
 
     try {
-      const response = await fetch(`${backendUrl}/login`, {
+      const cleanBackendUrl = (backendUrl || 'https://email-sender-hbvi.onrender.com').replace(/\/+$/, '');
+      const response = await fetch(`${cleanBackendUrl}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
