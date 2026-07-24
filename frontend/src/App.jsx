@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import DocxEditor from './components/DocxEditor';
 import {
   Mail, Sun, Moon, Upload, Plus, Trash2, Play, Pause, RotateCcw,
   FileText, CheckCircle2, AlertTriangle, Eye, Code, Terminal,
@@ -666,24 +667,15 @@ function App() {
 
                     {activeEditorTab === 0 ? (
                       <div>
-                        <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5 font-mono opacity-80">HTML Content</label>
-                        <TextField
-                          fullWidth
-                          multiline
-                          rows={11}
-                          variant="outlined"
+                        <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5 font-mono opacity-80">
+                          Document Content & Rich Editor
+                        </label>
+                        <DocxEditor
                           value={body}
-                          onChange={(e) => setBody(e.target.value)}
+                          onChange={setBody}
+                          isDark={isDark}
                           disabled={isSending}
-                          placeholder="<h2>Hello!</h2><p>Your content here.</p>"
-                          slotProps={{
-                            input: {
-                              style: {
-                                fontFamily: 'monospace',
-                                fontSize: '0.8rem',
-                              }
-                            }
-                          }}
+                          showToast={showToast}
                         />
                       </div>
                     ) : (

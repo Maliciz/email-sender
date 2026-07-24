@@ -39,7 +39,7 @@ const upload = multer({ dest: uploadsDir });
 
 // Global Lock & State
 let isMailing = false;
-let currentSenderEmail = 'hello@serrvvice.com';
+let currentSenderEmail = process.env.DEFAULT_SENDER_EMAIL || process.env.SENDER_EMAIL || '';
 let sseClients = [];
 let recentLogs = [];
 
@@ -82,6 +82,13 @@ function addLog(message) {
 // Helper to fetch statistics for SSE & UI
 async function getProgressStats() {
   try {
+    if (!currentSenderEmail) {
+      const senderRes = await query('SELECT email_address FROM senders ORDER BY id DESC LIMIT 1');
+      if (senderRes && senderRes.rows && senderRes.rows.length > 0) {
+        currentSenderEmail = senderRes.rows[0].email_address;
+      }
+    }
+
     const { rows } = await query(
       'SELECT status, COUNT(*) as count FROM contacts GROUP BY status'
     );
@@ -369,7 +376,7 @@ async function processMailing(subject, html, senderEmail) {
       return;
     }
 
-    const fromAddress = senderEmail || currentSenderEmail || 'hello@serrvvice.com';
+    const fromAddress = senderEmail || currentSenderEmail || process.env.DEFAULT_SENDER_EMAIL || process.env.SENDER_EMAIL;
 
     for (const contact of rows) {
       const email = contact.email;
