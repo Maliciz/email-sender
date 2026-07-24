@@ -452,6 +452,45 @@ app.post('/contacts/reset-all', async (req, res) => {
 });
 
 /**
+ * DELETE /contacts/:id - Delete single contact by ID
+ */
+app.delete('/contacts/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const dbRes = await query('DELETE FROM contacts WHERE id = $1', [id]);
+    broadcastSSEStatus();
+    return res.status(200).json({
+      success: true,
+      message: 'Contact deleted successfully',
+      deletedCount: dbRes.rowCount
+    });
+  } catch (error) {
+    console.error('Error deleting contact:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /contacts/clear-all - Delete all contacts from database
+ */
+app.post('/contacts/clear-all', async (req, res) => {
+  try {
+    const dbRes = await query('DELETE FROM contacts');
+    const deletedCount = dbRes.rowCount || 0;
+    addLog(`[System] Cleared all ${deletedCount} contacts from database.`);
+    broadcastSSEStatus();
+    return res.status(200).json({
+      success: true,
+      message: `Cleared all ${deletedCount} contacts.`,
+      deletedCount
+    });
+  } catch (error) {
+    console.error('Error clearing contacts:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * 2. Upload Contacts (POST /upload)
  * Accepts file upload (.txt or .csv) via Multer or raw emails array,
  * extracts email addresses, trims spaces, ignores empty lines,

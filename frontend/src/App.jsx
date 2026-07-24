@@ -23,6 +23,7 @@ import {
   LinearProgress,
   CircularProgress,
   Tooltip,
+  IconButton,
   Box,
   Switch,
   FormControlLabel,
@@ -594,6 +595,47 @@ function App() {
     }
   };
 
+  // Delete single contact by ID
+  const handleDeleteSingleContact = async (id, email) => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/contacts/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        showToast(`Deleted ${email} from database.`, 'success');
+        fetchDbContacts();
+      } else {
+        throw new Error(data.error || 'Failed to delete contact');
+      }
+    } catch (err) {
+      showToast(`Delete error: ${err.message}`, 'error');
+    }
+  };
+
+  // Clear all contacts
+  const handleClearAllContacts = async () => {
+    if (!window.confirm('Are you sure you want to delete ALL contacts from the database?')) {
+      return;
+    }
+    try {
+      const response = await fetch(`${BACKEND_URL}/contacts/clear-all`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        showToast(data.message || 'Cleared all contacts from database.', 'success');
+        fetchDbContacts();
+      } else {
+        throw new Error(data.error || 'Failed to clear contacts');
+      }
+    } catch (err) {
+      showToast(`Clear error: ${err.message}`, 'error');
+    }
+  };
+
   const handleResetConfirm = async () => {
     setResetDialogOpen(false);
     await handleResetSentContacts();
@@ -637,6 +679,23 @@ function App() {
           />
         );
       }
+    },
+    {
+      field: 'actions',
+      headerName: 'Actions',
+      width: 100,
+      sortable: false,
+      renderCell: (params) => (
+        <Tooltip title="Delete email">
+          <IconButton
+            size="small"
+            color="error"
+            onClick={() => handleDeleteSingleContact(params.row.id, params.row.email)}
+          >
+            <Trash2 className="h-4 w-4" />
+          </IconButton>
+        </Tooltip>
+      )
     }
   ];
 
@@ -1160,6 +1219,16 @@ function App() {
                       startIcon={<Trash2 className="h-3.5 w-3.5" />}
                     >
                       Delete Errors
+                    </Button>
+
+                    <Button
+                      variant="contained"
+                      color="error"
+                      size="small"
+                      onClick={handleClearAllContacts}
+                      startIcon={<Trash2 className="h-3.5 w-3.5" />}
+                    >
+                      Clear All
                     </Button>
 
                     <FormControlLabel
