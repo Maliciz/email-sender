@@ -33,6 +33,70 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Email Sender API is running' });
 });
 
+// Authentication Endpoint (POST /login & POST /api/login)
+const handleLogin = (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+    const adminPassword = process.env.ADMIN_PASSWORD || '3617';
+
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Both username and password are required'
+      });
+    }
+
+    if (username === adminUsername && password === adminPassword) {
+      const tokenPayload = {
+        username: adminUsername,
+        role: 'admin',
+        iat: Date.now()
+      };
+      const token = Buffer.from(JSON.stringify(tokenPayload)).toString('base64');
+      
+      return res.status(200).json({
+        success: true,
+        message: 'Authentication successful',
+        token,
+        user: { username: adminUsername }
+      });
+    }
+
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid username or password'
+    });
+  } catch (err) {
+    console.error('Error during login:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error during login' });
+  }
+};
+
+app.post('/login', handleLogin);
+app.post('/api/login', handleLogin);
+
+// Token Verification Endpoint
+app.get('/verify-token', (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, valid: false, error: 'No authorization header' });
+    }
+    const token = authHeader.replace(/^Bearer\s+/i, '');
+    const decoded = JSON.parse(Buffer.from(token, 'base64').toString('utf8'));
+    const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+
+    if (decoded && decoded.username === adminUsername) {
+      return res.status(200).json({ success: true, valid: true, user: decoded });
+    }
+  } catch (err) {
+    // invalid token format
+  }
+  return res.status(401).json({ success: false, valid: false, error: 'Invalid or expired token' });
+});
+
+
 // Diagnostic Database Endpoint
 app.get('/test-db', async (req, res) => {
   try {

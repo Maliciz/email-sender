@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import DocxEditor from './components/DocxEditor';
+import LoginPage from './components/LoginPage';
 import {
   Mail, Sun, Moon, Upload, Plus, Trash2, Play, Pause, RotateCcw,
   FileText, CheckCircle2, AlertTriangle, Eye, Code, Terminal,
   Database, Send, RefreshCw, Filter, X, ShieldCheck, Hourglass, Layers,
-  Globe, Check
+  Globe, Check, LogOut
 } from 'lucide-react';
 import { createTheme, ThemeProvider, styled } from '@mui/material/styles';
 import {
@@ -51,6 +52,9 @@ const GlowingLinearProgress = styled(LinearProgress)(({ theme }) => ({
 }));
 
 function App() {
+  // Authentication State
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem('auth_token') || '');
+
   // Theme State: 'dark' or 'light'
   const [themeMode, setThemeMode] = useState('dark');
 
@@ -100,6 +104,20 @@ function App() {
 
   const showToast = (message, severity = 'info') => {
     setToast({ open: true, message, severity });
+  };
+
+  // Login Success Handler
+  const handleLoginSuccess = (token) => {
+    localStorage.setItem('auth_token', token);
+    setAuthToken(token);
+    showToast('Authenticated successfully!', 'success');
+  };
+
+  // Logout Handler
+  const handleLogout = () => {
+    localStorage.removeItem('auth_token');
+    setAuthToken('');
+    showToast('Logged out successfully', 'info');
   };
 
   // Build MUI Dynamic Theme
@@ -215,6 +233,7 @@ function App() {
 
   // SSE Real-time Status Connection
   useEffect(() => {
+    if (!authToken) return;
     let eventSource = null;
 
     const connectSSE = () => {
@@ -250,13 +269,16 @@ function App() {
     return () => {
       if (eventSource) eventSource.close();
     };
-  }, []);
+  }, [authToken]);
 
   // Fetch Database Contacts
   const fetchDbContacts = async () => {
+    if (!authToken) return;
     setIsLoadingContacts(true);
     try {
-      const response = await fetch(`${BACKEND_URL}/contacts`);
+      const response = await fetch(`${BACKEND_URL}/contacts`, {
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
       const data = await response.json();
       if (response.ok && data.success) {
         setDbContacts(data.contacts || []);
@@ -273,8 +295,11 @@ function App() {
 
   // Fetch Connected Sender Domains
   const fetchSenders = async () => {
+    if (!authToken) return;
     try {
-      const response = await fetch(`${BACKEND_URL}/senders`);
+      const response = await fetch(`${BACKEND_URL}/senders`, {
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
       const data = await response.json();
       if (response.ok && data.success) {
         const senderList = data.senders || [];
@@ -289,9 +314,11 @@ function App() {
   };
 
   useEffect(() => {
-    fetchDbContacts();
-    fetchSenders();
-  }, []);
+    if (authToken) {
+      fetchDbContacts();
+      fetchSenders();
+    }
+  }, [authToken]);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -312,7 +339,10 @@ function App() {
     try {
       const response = await fetch(`${BACKEND_URL}/senders`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`
+        },
         body: JSON.stringify({
           email_address: newSenderEmail.trim(),
           domain_name: newSenderDomain.trim() || undefined
@@ -339,7 +369,10 @@ function App() {
   // Delete Sender Domain
   const handleDeleteSender = async (id, email) => {
     try {
-      const response = await fetch(`${BACKEND_URL}/senders/${id}`, { method: 'DELETE' });
+      const response = await fetch(`${BACKEND_URL}/senders/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
       if (response.ok) {
         showToast(`Removed sender ${email}`, 'info');
         fetchSenders();
@@ -448,7 +481,10 @@ function App() {
     try {
       const response = await fetch(`${BACKEND_URL}/deploy-contacts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`
+        },
         body: JSON.stringify({ emails: stagedEmails })
       });
 
@@ -483,7 +519,10 @@ function App() {
     try {
       const response = await fetch(`${BACKEND_URL}/start-mailing`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`
+        },
         body: JSON.stringify({
           senderEmail: selectedSenderEmail,
           subject,
@@ -523,12 +562,12 @@ function App() {
   }, [dbContacts, errorsOnlyFilter, searchQuery]);
 
   const columns = [
-    { field: 'id', headerName: 'ID', width: 90 },
-    { field: 'email', headerName: 'Email Address', flex: 1, minWidth: 260 },
+    { field: 'id', headerName: 'ID', width: 80 },
+    { field: 'email', headerName: 'Email Address', flex: 1, minWidth: 220 },
     {
       field: 'status',
       headerName: 'Status',
-      width: 160,
+      width: 140,
       renderCell: (params) => {
         const val = params.value;
         let color = 'default';
@@ -541,7 +580,7 @@ function App() {
             label={val ? val.toUpperCase() : 'PENDING'}
             color={color}
             size="small"
-            sx={{ fontWeight: 700, fontSize: '0.7rem' }}
+            sx={{ fontWeight: 700, fontSize: '0.65rem' }}
           />
         );
       }
@@ -551,39 +590,89 @@ function App() {
   const isSending = stats.status === 'sending';
   const isDark = themeMode === 'dark';
 
+  // Render Login Page if Unauthenticated
+  if (!authToken) {
+    return (
+      <ThemeProvider theme={muiTheme}>
+        <LoginPage
+          onLoginSuccess={handleLoginSuccess}
+          isDark={isDark}
+          setThemeMode={setThemeMode}
+          backendUrl={BACKEND_URL}
+        />
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider theme={muiTheme}>
       <div className={`min-h-screen pb-12 transition-colors duration-300 ${isDark ? 'dark-mode bg-black text-white' : 'light-mode bg-white text-black'}`}>
 
         {/* Top Navbar */}
         <header className={`border-b sticky top-0 z-50 backdrop-blur-md ${isDark ? 'bg-black/90 border-zinc-800' : 'bg-white/90 border-black'}`}>
-          <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-            {/* Logo */}
-            <div className="flex items-center space-x-3">
-              <div className={`p-2.5 rounded-xl border ${isDark ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-black text-white border-black shadow-[0_0_8px_rgba(0,0,0,0.5)]'}`}>
-                <Mail className="h-5 w-5 stroke-[2.5]" />
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+            
+            {/* Top Row on Mobile: Logo + Connection Status + Controls */}
+            <div className="flex items-center justify-between w-full md:w-auto">
+              <div className="flex items-center space-x-2.5 sm:space-x-3">
+                <div className={`p-2 sm:p-2.5 rounded-xl border ${isDark ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-black text-white border-black shadow-[0_0_8px_rgba(0,0,0,0.5)]'}`}>
+                  <Mail className="h-4 w-4 sm:h-5 sm:w-5 stroke-[2.5]" />
+                </div>
+                <div>
+                  <h1 className="text-lg sm:text-xl font-display font-bold tracking-tight m-0 leading-none">
+                    SEND<span className={isDark ? 'text-zinc-400' : 'text-zinc-700'}>GRID</span>
+                  </h1>
+                </div>
               </div>
-              <div>
-                <h1 className="text-xl font-display font-bold tracking-tight m-0 leading-none">
-                  SEND<span className={isDark ? 'text-zinc-400' : 'text-zinc-700'}>GRID</span> 
-                </h1>
+
+              {/* Mobile Quick Action Buttons */}
+              <div className="flex items-center space-x-2 md:hidden">
+                <span className={`flex items-center text-[10px] sm:text-xs space-x-1.5 px-2.5 py-1 rounded-full border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black'}`}>
+                  <span className={`h-2 w-2 rounded-full ${connectionStatus === 'connected' ? 'bg-emerald-500 shadow-[0_0_6px_#10b981]' : connectionStatus === 'connecting' ? 'bg-amber-500 animate-pulse' : 'bg-red-500'}`} />
+                  <span className="font-mono capitalize">{connectionStatus}</span>
+                </span>
+
+                <Tooltip title={`Switch to ${isDark ? 'Light' : 'Dark'} Mode`}>
+                  <Button
+                    onClick={() => setThemeMode(isDark ? 'light' : 'dark')}
+                    variant="outlined"
+                    sx={{ minWidth: '36px', width: '36px', height: '36px', p: 0 }}
+                  >
+                    {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                  </Button>
+                </Tooltip>
+
+                <Tooltip title="Sign Out">
+                  <Button
+                    onClick={handleLogout}
+                    variant="outlined"
+                    color="error"
+                    sx={{ minWidth: '36px', width: '36px', height: '36px', p: 0 }}
+                  >
+                    <LogOut className="h-4 w-4" />
+                  </Button>
+                </Tooltip>
               </div>
             </div>
 
-            {/* Navigation Tabs */}
-            <Box sx={{ borderBottom: 0 }}>
+            {/* Navigation Tabs (Touch Scrollable on Mobile) */}
+            <Box sx={{ borderBottom: 0, width: { xs: '100%', md: 'auto' }, overflowX: 'auto' }}>
               <Tabs
                 value={mainTab}
                 onChange={(e, val) => setMainTab(val)}
                 textColor="primary"
                 indicatorColor="primary"
+                variant="scrollable"
+                scrollButtons="auto"
+                allowScrollButtonsMobile
                 sx={{
                   '& .MuiTab-root': {
                     fontFamily: "'Outfit', sans-serif",
                     fontWeight: 700,
-                    fontSize: '0.85rem',
+                    fontSize: { xs: '0.75rem', sm: '0.85rem' },
                     textTransform: 'none',
-                    minHeight: '44px',
+                    minHeight: '40px',
+                    px: { xs: 1.5, sm: 2 },
                     color: isDark ? '#a1a1aa' : '#52525b',
                     '&.Mui-selected': {
                       color: isDark ? '#ffffff' : '#000000',
@@ -592,17 +681,15 @@ function App() {
                 }}
               >
                 <Tab icon={<Terminal className="h-4 w-4" />} iconPosition="start" label="Campaign Dashboard" />
-                <Tab icon={<Database className="h-4 w-4" />} iconPosition="start" label={`Database / Contacts (${dbContacts.length})`} />
-                <Tab icon={<Globe className="h-4 w-4" />} iconPosition="start" label={`Senders & Domains (${senders.length})`} />
+                <Tab icon={<Database className="h-4 w-4" />} iconPosition="start" label={`Contacts (${dbContacts.length})`} />
+                <Tab icon={<Globe className="h-4 w-4" />} iconPosition="start" label={`Senders (${senders.length})`} />
               </Tabs>
             </Box>
 
-            {/* Theme Toggle & SSE Status */}
-            <div className="flex items-center space-x-4">
-              <span className={`flex items-center text-xs space-x-2 px-3.5 py-1.5 rounded-full border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black shadow-[0_0_6px_rgba(0,0,0,0.3)]'}`}>
-                <span className={`h-2 w-2 rounded-full ${connectionStatus === 'connected' ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' :
-                  connectionStatus === 'connecting' ? 'bg-amber-500 animate-pulse' : 'bg-red-500'
-                  }`} />
+            {/* Desktop Actions */}
+            <div className="hidden md:flex items-center space-x-3">
+              <span className={`flex items-center text-xs space-x-2 px-3 py-1.5 rounded-full border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black shadow-[0_0_6px_rgba(0,0,0,0.3)]'}`}>
+                <span className={`h-2 w-2 rounded-full ${connectionStatus === 'connected' ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : connectionStatus === 'connecting' ? 'bg-amber-500 animate-pulse' : 'bg-red-500'}`} />
                 <span className="font-mono font-semibold tracking-wide capitalize">{connectionStatus}</span>
               </span>
 
@@ -610,15 +697,21 @@ function App() {
                 <Button
                   onClick={() => setThemeMode(isDark ? 'light' : 'dark')}
                   variant="outlined"
-                  sx={{
-                    minWidth: '40px',
-                    width: '40px',
-                    height: '40px',
-                    p: 0,
-                    color: isDark ? '#ffffff' : '#000000',
-                  }}
+                  sx={{ minWidth: '40px', width: '40px', height: '40px', p: 0 }}
                 >
                   {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                </Button>
+              </Tooltip>
+
+              <Tooltip title="Sign Out">
+                <Button
+                  onClick={handleLogout}
+                  variant="outlined"
+                  color="error"
+                  startIcon={<LogOut className="h-4 w-4" />}
+                  sx={{ fontSize: '0.8rem', px: 2 }}
+                >
+                  Logout
                 </Button>
               </Tooltip>
             </div>
@@ -626,16 +719,16 @@ function App() {
         </header>
 
         {/* Main Application Content */}
-        <main className="max-w-7xl mx-auto px-6 mt-8">
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 mt-4 sm:mt-8">
 
           {/* TAB 0: CAMPAIGN DASHBOARD */}
           {mainTab === 0 && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
               {/* Left Panel: Subject & Body Editor */}
               <section className="lg:col-span-7 space-y-6">
-                <div className="glass-panel rounded-2xl p-6 relative overflow-hidden">
+                <div className="glass-panel rounded-2xl p-4 sm:p-6 relative overflow-hidden">
                   <div className="flex justify-between items-center mb-5">
-                    <h2 className="text-md font-display font-semibold flex items-center space-x-2.5">
+                    <h2 className="text-sm sm:text-md font-display font-semibold flex items-center space-x-2">
                       <FileText className="h-4.5 w-4.5" />
                       <span>Broadcast Content & Blueprint</span>
                     </h2>
@@ -647,8 +740,8 @@ function App() {
                       indicatorColor="primary"
                       sx={{ minHeight: '36px' }}
                     >
-                      <Tab label="Edit HTML" icon={<Code className="h-3.5 w-3.5" />} iconPosition="start" sx={{ minHeight: '36px', fontSize: '0.8rem' }} />
-                      <Tab label="Live Render" icon={<Eye className="h-3.5 w-3.5" />} iconPosition="start" sx={{ minHeight: '36px', fontSize: '0.8rem' }} />
+                      <Tab label="Edit HTML" icon={<Code className="h-3.5 w-3.5" />} iconPosition="start" sx={{ minHeight: '36px', fontSize: '0.75rem', px: 1 }} />
+                      <Tab label="Live Render" icon={<Eye className="h-3.5 w-3.5" />} iconPosition="start" sx={{ minHeight: '36px', fontSize: '0.75rem', px: 1 }} />
                     </Tabs>
                   </div>
 
@@ -681,7 +774,7 @@ function App() {
                     ) : (
                       <div>
                         <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5 font-mono opacity-80">Visualized Live Preview</label>
-                        <div className={`w-full min-h-[285px] max-h-[360px] overflow-y-auto rounded-xl p-5 border ${isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-200' : 'bg-slate-50 border-black text-black shadow-[0_0_6px_rgba(0,0,0,0.2)]'}`}>
+                        <div className={`w-full min-h-[285px] max-h-[360px] overflow-y-auto rounded-xl p-4 sm:p-5 border ${isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-200' : 'bg-slate-50 border-black text-black shadow-[0_0_6px_rgba(0,0,0,0.2)]'}`}>
                           {body.trim() ? (
                             <div dangerouslySetInnerHTML={{ __html: body }} />
                           ) : (
@@ -699,10 +792,10 @@ function App() {
 
               {/* Right Panel: Sender Selector, Controls & Stream */}
               <section className="lg:col-span-5 space-y-6">
-                {/* Requirement 3: Sender Domain / Email Selection Component */}
-                <div className="glass-panel rounded-2xl p-6 space-y-5">
+                {/* Sender Selection Component */}
+                <div className="glass-panel rounded-2xl p-4 sm:p-6 space-y-4">
                   <div className="flex justify-between items-center">
-                    <h2 className="text-md font-display font-semibold flex items-center space-x-2.5">
+                    <h2 className="text-sm sm:text-md font-display font-semibold flex items-center space-x-2">
                       <Globe className="h-4.5 w-4.5" />
                       <span>Sender Connection Selection</span>
                     </h2>
@@ -710,7 +803,7 @@ function App() {
                       label={senders.length > 0 ? `${senders.length} Available` : 'No Senders'}
                       color={senders.length > 0 ? 'success' : 'error'}
                       size="small"
-                      sx={{ fontWeight: 700, fontSize: '0.7rem' }}
+                      sx={{ fontWeight: 700, fontSize: '0.65rem' }}
                     />
                   </div>
 
@@ -732,8 +825,8 @@ function App() {
                         {senders.map((s) => (
                           <MenuItem key={s.id} value={s.email_address}>
                             <div className="flex justify-between items-center w-full">
-                              <span className="font-semibold">{s.email_address}</span>
-                              <span className="text-xs opacity-60 font-mono">({s.domain_name})</span>
+                              <span className="font-semibold text-xs sm:text-sm">{s.email_address}</span>
+                              <span className="text-[10px] opacity-60 font-mono hidden sm:inline">({s.domain_name})</span>
                             </div>
                           </MenuItem>
                         ))}
@@ -742,16 +835,16 @@ function App() {
 
                     {senders.length === 0 && (
                       <p className="text-xs text-amber-500 mt-1 font-mono">
-                        No senders found. Please go to the "Senders & Domains" tab to add one.
+                        No senders found. Please go to the "Senders" tab to add one.
                       </p>
                     )}
                   </div>
                 </div>
 
                 {/* State Controller Card */}
-                <div className="glass-panel rounded-2xl p-6">
+                <div className="glass-panel rounded-2xl p-4 sm:p-6">
                   <div className="flex justify-between items-center mb-5">
-                    <h2 className="text-md font-display font-semibold flex items-center space-x-2.5">
+                    <h2 className="text-sm sm:text-md font-display font-semibold flex items-center space-x-2">
                       <Hourglass className="h-4.5 w-4.5" />
                       <span>Campaign Controller</span>
                     </h2>
@@ -760,7 +853,7 @@ function App() {
                       label={stats.status.toUpperCase()}
                       color={isSending ? 'primary' : stats.status === 'completed' ? 'success' : 'default'}
                       size="small"
-                      sx={{ fontWeight: 700, fontSize: '0.7rem' }}
+                      sx={{ fontWeight: 700, fontSize: '0.65rem' }}
                     />
                   </div>
 
@@ -774,29 +867,28 @@ function App() {
                     </div>
 
                     {/* Stats Grid */}
-                    <div className="grid grid-cols-2 gap-3 font-mono">
-                      <div className={`p-3 rounded-xl text-center border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black shadow-[0_0_4px_rgba(0,0,0,0.2)]'}`}>
-                        <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Total Contacts</p>
-                        <p className="text-lg font-bold mt-0.5">{stats.total.toLocaleString()}</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 font-mono">
+                      <div className={`p-2.5 sm:p-3 rounded-xl text-center border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black shadow-[0_0_4px_rgba(0,0,0,0.2)]'}`}>
+                        <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Total</p>
+                        <p className="text-md sm:text-lg font-bold mt-0.5">{stats.total.toLocaleString()}</p>
                       </div>
 
-                      <div className={`p-3 rounded-xl text-center border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black shadow-[0_0_4px_rgba(0,0,0,0.2)]'}`}>
+                      <div className={`p-2.5 sm:p-3 rounded-xl text-center border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black shadow-[0_0_4px_rgba(0,0,0,0.2)]'}`}>
                         <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Sent</p>
-                        <p className="text-lg font-bold mt-0.5">{stats.sent.toLocaleString()}</p>
+                        <p className="text-md sm:text-lg font-bold mt-0.5">{stats.sent.toLocaleString()}</p>
                       </div>
 
-                      <div className={`p-3 rounded-xl text-center border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black shadow-[0_0_4px_rgba(0,0,0,0.2)]'}`}>
-                        <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Remaining</p>
-                        <p className="text-lg font-bold mt-0.5">{stats.remaining.toLocaleString()}</p>
+                      <div className={`p-2.5 sm:p-3 rounded-xl text-center border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black shadow-[0_0_4px_rgba(0,0,0,0.2)]'}`}>
+                        <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Pending</p>
+                        <p className="text-md sm:text-lg font-bold mt-0.5">{stats.remaining.toLocaleString()}</p>
                       </div>
 
-                      <div className={`p-3 rounded-xl text-center border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black shadow-[0_0_4px_rgba(0,0,0,0.2)]'}`}>
+                      <div className={`p-2.5 sm:p-3 rounded-xl text-center border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-black shadow-[0_0_4px_rgba(0,0,0,0.2)]'}`}>
                         <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Errors</p>
-                        <p className="text-lg font-bold mt-0.5">{stats.errors.toLocaleString()}</p>
+                        <p className="text-md sm:text-lg font-bold mt-0.5 text-red-500">{stats.errors.toLocaleString()}</p>
                       </div>
                     </div>
 
-                    {/* Requirement 3: Disabled if no sender selected */}
                     <div className="flex space-x-3 pt-2">
                       <Button
                         variant="contained"
@@ -805,7 +897,7 @@ function App() {
                         disabled={isSending || !selectedSenderEmail || !subject.trim() || !body.trim()}
                         startIcon={<Play className="h-4 w-4" />}
                       >
-                        Launch Background Mailing
+                        Launch Mailing
                       </Button>
 
                       <Tooltip title="Reset Campaign State">
@@ -822,13 +914,13 @@ function App() {
                 </div>
 
                 {/* Stream Log Console */}
-                <div className="glass-panel rounded-2xl p-6">
-                  <h2 className="text-md font-display font-semibold mb-4 flex items-center space-x-2.5">
+                <div className="glass-panel rounded-2xl p-4 sm:p-6">
+                  <h2 className="text-sm sm:text-md font-display font-semibold mb-4 flex items-center space-x-2">
                     <Terminal className="h-4.5 w-4.5" />
                     <span>Real-time Stream Log</span>
                   </h2>
 
-                  <div className={`w-full h-56 rounded-xl p-4 font-mono text-[11px] overflow-y-auto space-y-2 border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-900 text-zinc-100 border-black shadow-[0_0_6px_rgba(0,0,0,0.3)]'}`}>
+                  <div className={`w-full h-48 sm:h-56 rounded-xl p-3 sm:p-4 font-mono text-[10px] sm:text-[11px] overflow-y-auto space-y-2 border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-900 text-zinc-100 border-black shadow-[0_0_6px_rgba(0,0,0,0.3)]'}`}>
                     {stats.logs.length === 0 ? (
                       <div className="opacity-40 italic h-full flex items-center justify-center text-center">
                         No active logs. Launch campaign to stream output.
@@ -850,12 +942,12 @@ function App() {
 
           {/* TAB 1: DATABASE & CONTACTS STAGING */}
           {mainTab === 1 && (
-            <div className="space-y-8">
+            <div className="space-y-6 sm:space-y-8">
               {/* Staging Area Card */}
-              <div className="glass-panel rounded-2xl p-6 space-y-6">
-                <div className="flex justify-between items-center border-b pb-4 border-zinc-800">
+              <div className="glass-panel rounded-2xl p-4 sm:p-6 space-y-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b pb-4 border-zinc-800">
                   <div>
-                    <h2 className="text-lg font-display font-bold flex items-center space-x-2.5">
+                    <h2 className="text-md sm:text-lg font-display font-bold flex items-center space-x-2">
                       <Layers className="h-5 w-5" />
                       <span>Contact Staging Area</span>
                     </h2>
@@ -874,22 +966,23 @@ function App() {
                         backgroundColor: isDark ? '#ffffff' : '#000000',
                         color: isDark ? '#000000' : '#ffffff',
                         fontWeight: 700,
-                        px: 3
+                        px: 3,
+                        width: { xs: '100%', sm: 'auto' }
                       }}
                     >
-                      {isDeploying ? 'Deploying...' : `Deploy ${stagedEmails.length} Staged Email(s)`}
+                      {isDeploying ? 'Deploying...' : `Deploy ${stagedEmails.length} Email(s)`}
                     </Button>
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider mb-2 font-mono opacity-80">
                       1. Upload CSV / TXT File
                     </label>
                     <div
                       onClick={() => fileInputRef.current?.click()}
-                      className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all ${isDark ? 'border-zinc-800 hover:border-zinc-500 bg-zinc-950/50' : 'border-black hover:bg-zinc-50 bg-white shadow-[0_0_6px_rgba(0,0,0,0.2)]'
+                      className={`border-2 border-dashed rounded-xl p-4 sm:p-5 text-center cursor-pointer transition-all ${isDark ? 'border-zinc-800 hover:border-zinc-500 bg-zinc-950/50' : 'border-black hover:bg-zinc-50 bg-white shadow-[0_0_6px_rgba(0,0,0,0.2)]'
                         }`}
                     >
                       <input
@@ -909,7 +1002,7 @@ function App() {
                     <label className="block text-xs font-bold uppercase tracking-wider mb-2 font-mono opacity-80">
                       2. Add Single Email Manually
                     </label>
-                    <form onSubmit={handleAddManualEmail} className="flex space-x-2">
+                    <form onSubmit={handleAddManualEmail} className="flex flex-col sm:flex-row gap-2">
                       <TextField
                         fullWidth
                         placeholder="user@example.com"
@@ -923,7 +1016,7 @@ function App() {
                         startIcon={<Plus className="h-4 w-4" />}
                         sx={{ whiteSpace: 'nowrap' }}
                       >
-                        Add to Staging
+                        Add
                       </Button>
                     </form>
                   </div>
@@ -973,10 +1066,10 @@ function App() {
               </div>
 
               {/* Database Contacts Table */}
-              <div className="glass-panel rounded-2xl p-6 space-y-6">
+              <div className="glass-panel rounded-2xl p-4 sm:p-6 space-y-6">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b pb-4 border-zinc-800">
                   <div>
-                    <h2 className="text-lg font-display font-bold flex items-center space-x-2.5">
+                    <h2 className="text-md sm:text-lg font-display font-bold flex items-center space-x-2">
                       <Database className="h-5 w-5" />
                       <span>PostgreSQL Database Contacts</span>
                     </h2>
@@ -985,18 +1078,19 @@ function App() {
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-between md:justify-end">
                     <FormControlLabel
                       control={
                         <Switch
                           checked={errorsOnlyFilter}
                           onChange={(e) => setErrorsOnlyFilter(e.target.checked)}
                           color="error"
+                          size="small"
                         />
                       }
                       label={
-                        <span className="text-xs font-bold font-mono">
-                          Show Errors Only (status = 'error')
+                        <span className="text-[11px] sm:text-xs font-bold font-mono">
+                          Show Errors Only
                         </span>
                       }
                     />
@@ -1008,12 +1102,12 @@ function App() {
                       disabled={isLoadingContacts}
                       startIcon={<RefreshCw className={`h-3.5 w-3.5 ${isLoadingContacts ? 'animate-spin' : ''}`} />}
                     >
-                      Refresh DB
+                      Refresh
                     </Button>
                   </div>
                 </div>
 
-                <div className="max-w-md">
+                <div className="max-w-md w-full">
                   <TextField
                     fullWidth
                     size="small"
@@ -1032,22 +1126,25 @@ function App() {
                   />
                 </div>
 
-                <div style={{ height: 420, width: '100%' }}>
-                  <DataGrid
-                    rows={filteredContacts}
-                    columns={columns}
-                    loading={isLoadingContacts}
-                    pageSizeOptions={[10, 25, 50, 100]}
-                    initialState={{
-                      pagination: { paginationModel: { pageSize: 10 } },
-                    }}
-                    disableRowSelectionOnClick
-                    sx={{
-                      '& .MuiDataGrid-cell': {
-                        fontSize: '0.85rem',
-                      }
-                    }}
-                  />
+                <div className="w-full overflow-x-auto rounded-xl border border-zinc-800">
+                  <div style={{ height: 420, minWidth: 500, width: '100%' }}>
+                    <DataGrid
+                      rows={filteredContacts}
+                      columns={columns}
+                      loading={isLoadingContacts}
+                      pageSizeOptions={[10, 25, 50, 100]}
+                      initialState={{
+                        pagination: { paginationModel: { pageSize: 10 } },
+                      }}
+                      disableRowSelectionOnClick
+                      sx={{
+                        border: 'none',
+                        '& .MuiDataGrid-cell': {
+                          fontSize: '0.85rem',
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -1055,11 +1152,11 @@ function App() {
 
           {/* TAB 2: SENDERS & DOMAIN MANAGEMENT */}
           {mainTab === 2 && (
-            <div className="space-y-8">
-              {/* Requirement 3: Add Sender Domain Form */}
-              <div className="glass-panel rounded-2xl p-6 space-y-6">
+            <div className="space-y-6 sm:space-y-8">
+              {/* Add Sender Domain Form */}
+              <div className="glass-panel rounded-2xl p-4 sm:p-6 space-y-6">
                 <div className="border-b pb-4 border-zinc-800">
-                  <h2 className="text-lg font-display font-bold flex items-center space-x-2.5">
+                  <h2 className="text-md sm:text-lg font-display font-bold flex items-center space-x-2">
                     <Globe className="h-5 w-5" />
                     <span>Domain & Sender Connection Management</span>
                   </h2>
@@ -1117,7 +1214,7 @@ function App() {
               </div>
 
               {/* Senders Table / List */}
-              <div className="glass-panel rounded-2xl p-6 space-y-4">
+              <div className="glass-panel rounded-2xl p-4 sm:p-6 space-y-4">
                 <h3 className="text-md font-display font-bold flex items-center space-x-2">
                   <ShieldCheck className="h-4.5 w-4.5" />
                   <span>Connected Sender Domains ({senders.length})</span>
@@ -1128,7 +1225,7 @@ function App() {
                     No sender domains connected yet. Add a sender email above.
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                     {senders.map((s) => (
                       <div
                         key={s.id}
