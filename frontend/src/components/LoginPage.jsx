@@ -54,15 +54,13 @@ export default function LoginPage({
   };
 
   return (
-    <div className={`min-h-screen flex flex-col justify-between p-4 sm:p-6 transition-colors duration-300 ${
-      isDark ? 'dark-mode bg-black text-white' : 'light-mode bg-white text-black'
-    }`}>
+    <div className={`min-h-screen flex flex-col justify-between p-4 sm:p-6 transition-colors duration-300 ${isDark ? 'dark-mode bg-black text-white' : 'light-mode bg-white text-black'
+      }`}>
       {/* Top Header Bar with Theme Toggle */}
       <header className="max-w-7xl w-full mx-auto flex items-center justify-between py-2">
         <div className="flex items-center space-x-3">
-          <div className={`p-2 rounded-xl border ${
-            isDark ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-black text-white border-black shadow-[0_0_8px_rgba(0,0,0,0.5)]'
-          }`}>
+          <div className={`p-2 rounded-xl border ${isDark ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-black text-white border-black shadow-[0_0_8px_rgba(0,0,0,0.5)]'
+            }`}>
             <Mail className="h-5 w-5 stroke-[2.5]" />
           </div>
           <span className="font-display font-bold tracking-tight text-lg">
@@ -90,20 +88,13 @@ export default function LoginPage({
 
       {/* Main Login Card Area */}
       <main className="flex-1 flex items-center justify-center py-8">
-        <div className={`w-full max-w-md rounded-2xl glass-panel p-6 sm:p-8 transition-all ${
-          isDark ? 'bg-zinc-950/80 border-zinc-800' : 'bg-white border-black shadow-[0_0_15px_rgba(0,0,0,0.25)]'
-        }`}>
+        <div className={`w-full max-w-md rounded-2xl glass-panel p-6 sm:p-8 transition-all ${isDark ? 'bg-zinc-950/80 border-zinc-800' : 'bg-white border-black shadow-[0_0_15px_rgba(0,0,0,0.25)]'
+          }`}>
           {/* Header & Logo Badge */}
           <div className="text-center space-y-3 mb-6 sm:mb-8">
             <div className="inline-flex items-center justify-center p-3.5 rounded-2xl border mb-2 bg-gradient-to-b from-zinc-800 to-zinc-950 border-zinc-700 text-white shadow-lg">
               <ShieldCheck className="h-7 w-7 text-emerald-400" />
             </div>
-            <h1 className="text-2xl sm:text-3xl font-display font-bold tracking-tight">
-              Admin Portal
-            </h1>
-            <p className="text-xs sm:text-sm font-mono opacity-70">
-              Sign in to manage campaigns, senders & dispatch contacts
-            </p>
           </div>
 
           {/* Error Alert Message */}
@@ -224,9 +215,7 @@ export default function LoginPage({
 
       {/* Footer Credentials Info */}
       <footer className="text-center py-4">
-        <p className="text-xs font-mono opacity-50">
-          Default Admin Login: <span className="underline font-semibold">admin</span> / <span className="underline font-semibold">3617</span>
-        </p>
+
       </footer>
     </div>
   );
